@@ -4,7 +4,7 @@ commands:
   typecheck: npx tsc --noEmit
   build: npm run build
   lint: npm run lint:code
-  test: npm run test-node:unit
+  test: npm run test-node:unit && npm run test-node:reporters && npm run test-node:interfaces
   test-unit: npm run test-node:unit
   test-integration: npm run test-node:integration
   test-reporters: npm run test-node:reporters
