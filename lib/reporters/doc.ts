@@ -1,26 +1,48 @@
 "use strict";
 
 /**
- * @typedef {import('../runner.js')} Runner
- */
-
-/**
  * @module Doc
  */
 /**
  * Module dependencies.
  */
 
-var Base = require("./base");
-var utils = require("../utils");
-var constants = require("../runner").constants;
-var EVENT_TEST_PASS = constants.EVENT_TEST_PASS;
-var EVENT_TEST_FAIL = constants.EVENT_TEST_FAIL;
-var EVENT_SUITE_BEGIN = constants.EVENT_SUITE_BEGIN;
-var EVENT_SUITE_END = constants.EVENT_SUITE_END;
+const Base = require("./base");
+const utils = require("../utils");
+const constants = require("../runner").constants;
+const EVENT_TEST_PASS: string = constants.EVENT_TEST_PASS;
+const EVENT_TEST_FAIL: string = constants.EVENT_TEST_FAIL;
+const EVENT_SUITE_BEGIN: string = constants.EVENT_SUITE_BEGIN;
+const EVENT_SUITE_END: string = constants.EVENT_SUITE_END;
+
+/** Interface for test-like objects */
+interface TestLike {
+  title: string;
+  file?: string;
+  body: string;
+}
+
+/** Interface for suite-like objects */
+interface SuiteLike {
+  root: boolean;
+  title: string;
+}
+
+/** Interface for runner-like objects */
+interface RunnerLike {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string, listener: (...args: any[]) => void): void;
+}
+
+/** Interface for reporter options */
+interface ReporterOptions {
+  [key: string]: unknown;
+}
 
 class Doc extends Base {
-  static description = "HTML documentation";
+  static description: string = "HTML documentation";
 
   /**
    * Constructs a new `Doc` reporter instance.
@@ -28,19 +50,17 @@ class Doc extends Base {
    * @public
    * @memberof Mocha.reporters
    * @extends Mocha.reporters.Base
-   * @param {Runner} runner - Instance triggers reporter actions.
-   * @param {Object} [options] - runner options
    */
-  constructor(runner, options) {
+  constructor(runner: RunnerLike, options?: ReporterOptions) {
     super(runner, options);
 
-    var indents = 2;
+    let indents: number = 2;
 
-    function indent() {
+    function indent(): string {
       return Array(indents).join("  ");
     }
 
-    runner.on(EVENT_SUITE_BEGIN, function (suite) {
+    runner.on(EVENT_SUITE_BEGIN, function (suite: SuiteLike) {
       if (suite.root) {
         return;
       }
@@ -51,7 +71,7 @@ class Doc extends Base {
       Base.consoleLog("%s<dl>", indent());
     });
 
-    runner.on(EVENT_SUITE_END, function (suite) {
+    runner.on(EVENT_SUITE_END, function (suite: SuiteLike) {
       if (suite.root) {
         return;
       }
@@ -61,10 +81,10 @@ class Doc extends Base {
       --indents;
     });
 
-    runner.on(EVENT_TEST_PASS, function (test) {
+    runner.on(EVENT_TEST_PASS, function (test: TestLike) {
       Base.consoleLog("%s  <dt>%s</dt>", indent(), utils.escape(test.title));
       Base.consoleLog("%s  <dt>%s</dt>", indent(), utils.escape(test.file));
-      var code = utils.escape(utils.clean(test.body));
+      const code: string = utils.escape(utils.clean(test.body));
       Base.consoleLog(
         "%s  <dd><pre><code>%s</code></pre></dd>",
         indent(),
@@ -72,7 +92,7 @@ class Doc extends Base {
       );
     });
 
-    runner.on(EVENT_TEST_FAIL, function (test, err) {
+    runner.on(EVENT_TEST_FAIL, function (test: TestLike, err: Error) {
       Base.consoleLog(
         '%s  <dt class="error">%s</dt>',
         indent(),
@@ -83,7 +103,7 @@ class Doc extends Base {
         indent(),
         utils.escape(test.file),
       );
-      var code = utils.escape(utils.clean(test.body));
+      const code: string = utils.escape(utils.clean(test.body));
       Base.consoleLog(
         '%s  <dd class="error"><pre><code>%s</code></pre></dd>',
         indent(),

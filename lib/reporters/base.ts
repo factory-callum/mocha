@@ -1,10 +1,6 @@
 "use strict";
 
-/**
- * @typedef {import('../runner.js')} Runner
- * @typedef {import('../test.js')} Test
- * @typedef {import('../types.d.ts').FullErrorStack} FullErrorStack
- */
+import type { FullErrorStack } from "../types.d.ts";
 
 /**
  * @module Base
@@ -13,19 +9,91 @@
  * Module dependencies.
  */
 
-var diff = require("diff");
-var milliseconds = require("ms");
-var utils = require("../utils");
-var supportsColor = require("supports-color");
-var constants = require("../runner").constants;
-var EVENT_TEST_PASS = constants.EVENT_TEST_PASS;
-var EVENT_TEST_FAIL = constants.EVENT_TEST_FAIL;
+const diff = require("diff");
+const milliseconds = require("ms");
+const utils = require("../utils");
+const supportsColor = require("supports-color");
+const constants = require("../runner").constants;
+const EVENT_TEST_PASS: string = constants.EVENT_TEST_PASS;
+const EVENT_TEST_FAIL: string = constants.EVENT_TEST_FAIL;
 
-const isBrowser = utils.isBrowser();
+const isBrowser: boolean = utils.isBrowser();
 
-function getBrowserWindowSize() {
+/** Interface for error objects with diff information */
+interface DiffError {
+  name: string;
+  message: string;
+  stack?: string;
+  showDiff?: boolean;
+  actual?: unknown;
+  expected?: unknown;
+  uncaught?: boolean;
+  multiple?: DiffError[];
+  inspect?: () => string;
+  cause?: DiffError;
+}
+
+/** Interface for test-like objects used in reporters */
+interface TestLike {
+  title: string;
+  fullTitle(): string;
+  titlePath(): string[];
+  duration: number;
+  slow(): number;
+  speed?: string;
+  err?: DiffError;
+  body: string;
+  file?: string;
+  type: string;
+}
+
+/** Interface for runner-like objects used in reporters */
+interface RunnerLike {
+  stats: StatsLike;
+  suite: SuiteLike;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string, listener: (...args: any[]) => void): void;
+}
+
+/** Interface for suite-like objects used in reporters */
+interface SuiteLike {
+  title: string;
+  root: boolean;
+  suites: SuiteLike[];
+  fullTitle(): string;
+}
+
+/** Interface for stats */
+interface StatsLike {
+  suites: number;
+  tests: number;
+  passes: number;
+  pending: number;
+  failures: number;
+  duration: number;
+}
+
+/** Interface for reporter options */
+interface ReporterOptions {
+  reporterOption?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Interface for diff change objects */
+interface DiffChange {
+  added?: boolean;
+  removed?: boolean;
+  value: string;
+}
+
+/** Type for color name keys */
+type ColorName = string;
+
+function getBrowserWindowSize(): [number, number] {
   if ("innerHeight" in global) {
-    return [global.innerHeight, global.innerWidth];
+    return [(global as Record<string, unknown>).innerHeight as number, (global as Record<string, unknown>).innerWidth as number];
   }
   // In a Web Worker, the DOM Window is not available.
   return [640, 480];
@@ -35,12 +103,12 @@ function getBrowserWindowSize() {
  * Check if both stdio streams are associated with a tty.
  */
 
-var isatty = isBrowser || (process.stdout.isTTY && process.stderr.isTTY);
+const isatty: boolean = isBrowser || !!(process.stdout.isTTY && process.stderr.isTTY);
 
 /**
  * Save log references to avoid tests interfering (see GH-3604).
  */
-var consoleLog = console.log;
+const consoleLog: (...args: unknown[]) => void = console.log;
 
 /**
  * @abstract
@@ -48,16 +116,23 @@ var consoleLog = console.log;
  * All other reporters generally inherit from this reporter.
  */
 class Base {
+  failures: TestLike[];
+  options: ReporterOptions;
+  runner: RunnerLike;
+  stats: StatsLike;
+
+  static consoleLog: (...args: unknown[]) => void;
+  static abstract: boolean;
+  static list: (failures: TestLike[]) => void;
+
   /**
    * Constructs a new `Base` reporter instance.
    *
    * @public
    * @memberof Mocha.reporters
-   * @param {Runner} runner - Instance triggers reporter actions.
-   * @param {Object} [options] - runner options
    */
-  constructor(runner, options) {
-    var failures = (this.failures = []);
+  constructor(runner: RunnerLike, options?: ReporterOptions) {
+    const failures: TestLike[] = (this.failures = []);
 
     if (!runner) {
       throw new TypeError("Missing runner argument");
@@ -66,13 +141,13 @@ class Base {
     this.runner = runner;
     this.stats = runner.stats; // assigned so Reporters keep a closer reference
 
-    var maxDiffSizeOpt =
+    const maxDiffSizeOpt: unknown =
       this.options.reporterOption && this.options.reporterOption.maxDiffSize;
     if (maxDiffSizeOpt !== undefined && !isNaN(Number(maxDiffSizeOpt))) {
       exports.maxDiffSize = Number(maxDiffSizeOpt);
     }
 
-    runner.on(EVENT_TEST_PASS, function (test) {
+    runner.on(EVENT_TEST_PASS, function (test: TestLike) {
       if (test.duration > test.slow()) {
         test.speed = "slow";
       } else if (test.duration > test.slow() / 2) {
@@ -82,12 +157,12 @@ class Base {
       }
     });
 
-    runner.on(EVENT_TEST_FAIL, function (test, err) {
+    runner.on(EVENT_TEST_FAIL, function (test: TestLike, err: DiffError) {
       if (showDiff(err)) {
         stringifyDiffObjs(err);
       }
       // more than one error per test
-      if (test.err && err instanceof Error) {
+      if (test.err && (err as unknown) instanceof Error) {
         test.err.multiple = (test.err.multiple || []).concat(err);
       } else {
         test.err = err;
@@ -102,9 +177,9 @@ class Base {
    * @public
    * @memberof Mocha.reporters
    */
-  epilogue() {
-    var stats = this.stats;
-    var fmt;
+  epilogue(): void {
+    const stats = this.stats;
+    let fmt: string;
 
     Base.consoleLog();
 
@@ -187,7 +262,7 @@ exports.colors = {
   "diff removed": 31,
   "diff added inline": "30;42",
   "diff removed inline": "30;41",
-};
+} as Record<string, number | string>;
 
 /**
  * Default symbol map.
@@ -199,7 +274,7 @@ exports.symbols = {
   dot: ".",
   comma: ",",
   bang: "!",
-};
+} as Record<string, string>;
 
 /**
  * Color `str` with the given `type`,
@@ -208,11 +283,8 @@ exports.symbols = {
  * schemes.
  *
  * @private
- * @param {string} type
- * @param {string} str
- * @return {string}
  */
-var color = (exports.color = function (type, str) {
+const color: (type: ColorName, str: string) => string = (exports.color = function (type: ColorName, str: string): string {
   if (!exports.useColors) {
     return String(str);
   }
@@ -225,13 +297,13 @@ var color = (exports.color = function (type, str) {
 
 exports.window = {
   width: 75,
-};
+} as { width: number };
 
 if (isatty) {
   if (isBrowser) {
     exports.window.width = getBrowserWindowSize()[1];
   } else {
-    exports.window.width = process.stdout.getWindowSize(1)[0];
+    exports.window.width = (process.stdout.getWindowSize as (fd?: number) => [number, number])(1)[0];
   }
 }
 
@@ -240,23 +312,31 @@ if (isatty) {
  */
 
 exports.cursor = {
-  hide: function () {
-    isatty && process.stdout.write("\u001b[?25l");
+  hide: function (): void {
+    if (isatty) {
+      process.stdout.write("\u001b[?25l");
+    }
   },
 
-  show: function () {
-    isatty && process.stdout.write("\u001b[?25h");
+  show: function (): void {
+    if (isatty) {
+      process.stdout.write("\u001b[?25h");
+    }
   },
 
-  deleteLine: function () {
-    isatty && process.stdout.write("\u001b[2K");
+  deleteLine: function (): void {
+    if (isatty) {
+      process.stdout.write("\u001b[2K");
+    }
   },
 
-  beginningOfLine: function () {
-    isatty && process.stdout.write("\u001b[0G");
+  beginningOfLine: function (): void {
+    if (isatty) {
+      process.stdout.write("\u001b[0G");
+    }
   },
 
-  CR: function () {
+  CR: function (): void {
     if (isatty) {
       exports.cursor.deleteLine();
       exports.cursor.beginningOfLine();
@@ -266,8 +346,8 @@ exports.cursor = {
   },
 };
 
-var showDiff = (exports.showDiff = function (err) {
-  return (
+const showDiff: (err: DiffError) => boolean = (exports.showDiff = function (err: DiffError): boolean {
+  return !!(
     err &&
     err.showDiff !== false &&
     sameType(err.actual, err.expected) &&
@@ -275,7 +355,7 @@ var showDiff = (exports.showDiff = function (err) {
   );
 });
 
-function stringifyDiffObjs(err) {
+function stringifyDiffObjs(err: DiffError): void {
   if (!utils.isString(err.actual) || !utils.isString(err.expected)) {
     err.actual = utils.stringify(err.actual);
     err.expected = utils.stringify(err.expected);
@@ -288,22 +368,18 @@ function stringifyDiffObjs(err) {
  * @description
  * The diff will be either inline or unified dependent on the value
  * of `Base.inlineDiff`.
- *
- * @param {string} actual
- * @param {string} expected
- * @return {string} Diff
  */
 
-var generateDiff = (exports.generateDiff = function (actual, expected) {
+const generateDiff: (actual: string, expected: string) => string = (exports.generateDiff = function (actual: string, expected: string): string {
   try {
-    var maxLen = exports.maxDiffSize;
-    var skipped = 0;
+    const maxLen: number = exports.maxDiffSize;
+    let skipped: number = 0;
     if (maxLen > 0) {
       skipped = Math.max(actual.length - maxLen, expected.length - maxLen);
       actual = actual.slice(0, maxLen);
       expected = expected.slice(0, maxLen);
     }
-    let result = exports.inlineDiffs
+    let result: string = exports.inlineDiffs
       ? inlineDiff(actual, expected)
       : unifiedDiff(actual, expected);
     if (skipped > 0) {
@@ -311,7 +387,7 @@ var generateDiff = (exports.generateDiff = function (actual, expected) {
     }
     return result;
   } catch {
-    var msg =
+    const msg: string =
       "\n      " +
       color("diff added", "+ expected") +
       " " +
@@ -325,16 +401,13 @@ var generateDiff = (exports.generateDiff = function (actual, expected) {
  * Traverses err.cause and returns all stack traces
  *
  * @private
- * @param {Error} err
- * @param {Set<Error>} [seen]
- * @return {FullErrorStack}
  */
-var getFullErrorStack = function (err, seen) {
+const getFullErrorStack = function (err: DiffError, seen?: Set<DiffError>): FullErrorStack {
   if (seen && seen.has(err)) {
     return { message: "", msg: "<circular>", stack: "" };
   }
 
-  var message;
+  let message: string;
 
   if (typeof err.inspect === "function") {
     message = err.inspect() + "";
@@ -344,9 +417,9 @@ var getFullErrorStack = function (err, seen) {
     message = "";
   }
 
-  var msg;
-  var stack = err.stack || message;
-  var index = message ? stack.indexOf(message) : -1;
+  let msg: string;
+  let stack: string = err.stack || message;
+  let index: number = message ? stack.indexOf(message) : -1;
 
   if (index === -1) {
     msg = message;
@@ -380,32 +453,34 @@ var getFullErrorStack = function (err, seen) {
  * @public
  * @memberof Mocha.reporters.Base
  * @variation 1
- * @param {Object[]} failures - Each is Test instance with corresponding
- *     Error property
  */
-exports.list = function (failures) {
-  var multipleErr, multipleTest;
+exports.list = function (failures: TestLike[]): void {
+  let multipleErr: DiffError[] | undefined;
+  let multipleTest: TestLike | undefined;
   Base.consoleLog();
-  failures.forEach(function (test, i) {
+  failures.forEach(function (test: TestLike, i: number) {
     // format
-    var fmt =
+    let fmt: string =
       color("error title", "  %s) %s:\n") +
       color("error message", "     %s") +
       color("error stack", "\n%s\n");
 
     // msg
-    var err;
+    let err: DiffError;
     if (test.err && test.err.multiple) {
       if (multipleTest !== test) {
         multipleTest = test;
         multipleErr = [test.err].concat(test.err.multiple);
       }
-      err = multipleErr.shift();
+      err = multipleErr!.shift()!;
     } else {
-      err = test.err;
+      err = test.err!;
     }
 
-    var { message, msg, stack } = getFullErrorStack(err);
+    const { message, msg: errMsg, stack: errStack } = getFullErrorStack(err);
+
+    let msg: string = errMsg;
+    let stack: string = errStack;
 
     // uncaught
     if (err.uncaught) {
@@ -416,22 +491,22 @@ exports.list = function (failures) {
       stringifyDiffObjs(err);
       fmt =
         color("error title", "  %s) %s:\n%s") + color("error stack", "\n%s\n");
-      var match = message.match(/^([^:]+): expected/);
+      const match = message.match(/^([^:]+): expected/);
       msg = "\n      " + color("error message", match ? match[1] : msg);
 
-      msg += generateDiff(err.actual, err.expected);
+      msg += generateDiff(err.actual as string, err.expected as string);
     }
 
     // indent stack trace
     stack = stack.replace(/^/gm, "  ");
 
     // indented test title
-    var testTitle = "";
-    test.titlePath().forEach(function (str, index) {
+    let testTitle: string = "";
+    test.titlePath().forEach(function (str: string, index: number) {
       if (index !== 0) {
         testTitle += "\n     ";
       }
-      for (var i = 0; i < index; i++) {
+      for (let j = 0; j < index; j++) {
         testTitle += "  ";
       }
       testTitle += str;
@@ -445,32 +520,26 @@ exports.list = function (failures) {
  * Pads the given `str` to `len`.
  *
  * @private
- * @param {string} str
- * @param {string} len
- * @return {string}
  */
-function pad(str, len) {
-  str = String(str);
-  return Array(len - str.length + 1).join(" ") + str;
+function pad(str: string | number, len: number): string {
+  const s = String(str);
+  return Array(len - s.length + 1).join(" ") + s;
 }
 
 /**
  * Returns inline diff between 2 strings with coloured ANSI output.
  *
  * @private
- * @param {String} actual
- * @param {String} expected
- * @return {string} Diff
  */
-function inlineDiff(actual, expected) {
-  var msg = errorDiff(actual, expected);
+function inlineDiff(actual: string, expected: string): string {
+  let msg: string = errorDiff(actual, expected);
 
   // linenos
-  var lines = msg.split("\n");
+  const lines: string[] = msg.split("\n");
   if (lines.length > 4) {
-    var width = String(lines.length).length;
+    const width: number = String(lines.length).length;
     msg = lines
-      .map(function (str, i) {
+      .map(function (str: string, i: number) {
         return pad(i + 1, width) + " |" + " " + str;
       })
       .join("\n");
@@ -495,13 +564,10 @@ function inlineDiff(actual, expected) {
  * Returns unified diff between two strings with coloured ANSI output.
  *
  * @private
- * @param {String} actual
- * @param {String} expected
- * @return {string} The diff.
  */
-function unifiedDiff(actual, expected) {
-  var indent = "      ";
-  function cleanUp(line) {
+function unifiedDiff(actual: string, expected: string): string {
+  const indent: string = "      ";
+  function cleanUp(line: string): string | null {
     if (line[0] === "+") {
       return indent + colorLines("diff added", line);
     }
@@ -516,11 +582,11 @@ function unifiedDiff(actual, expected) {
     }
     return indent + line;
   }
-  function notBlank(line) {
+  function notBlank(line: string | null | undefined): line is string {
     return typeof line !== "undefined" && line !== null;
   }
-  var msg = diff.createPatch("string", actual, expected);
-  var lines = msg.split("\n").splice(5);
+  const msg: string = diff.createPatch("string", actual, expected);
+  const lines: string[] = msg.split("\n").splice(5);
   return (
     "\n      " +
     colorLines("diff added", "+ expected") +
@@ -535,14 +601,11 @@ function unifiedDiff(actual, expected) {
  * Returns character diff for `err`.
  *
  * @private
- * @param {String} actual
- * @param {String} expected
- * @return {string} the diff
  */
-function errorDiff(actual, expected) {
+function errorDiff(actual: string, expected: string): string {
   return diff
     .diffWordsWithSpace(actual, expected)
-    .map(function (str) {
+    .map(function (str: DiffChange) {
       if (str.added) {
         return colorLines("diff added inline", str.value);
       }
@@ -558,15 +621,12 @@ function errorDiff(actual, expected) {
  * Colors lines for `str`, using the color `name`.
  *
  * @private
- * @param {string} name
- * @param {string} str
- * @return {string}
  */
-function colorLines(name, str) {
+function colorLines(name: ColorName, str: string): string {
   return str
     .split("\n")
-    .map(function (str) {
-      return color(name, str);
+    .map(function (s: string) {
+      return color(name, s);
     })
     .join("\n");
 }
@@ -574,16 +634,13 @@ function colorLines(name, str) {
 /**
  * Object#toString reference.
  */
-var objToString = Object.prototype.toString;
+const objToString: () => string = Object.prototype.toString;
 
 /**
  * Checks that a / b have the same type.
  *
  * @private
- * @param {Object} a
- * @param {Object} b
- * @return {boolean}
  */
-function sameType(a, b) {
+function sameType(a: unknown, b: unknown): boolean {
   return objToString.call(a) === objToString.call(b);
 }
