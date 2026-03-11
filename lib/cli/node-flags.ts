@@ -6,16 +6,19 @@
  * @module
  */
 
-const nodeFlags = process.allowedNodeEnvironmentFlags;
-const { isMochaFlag } = require("./run-option-metadata");
-const unparse = require("yargs-unparser");
+const nodeFlags: ReadonlySet<string> | undefined =
+  process.allowedNodeEnvironmentFlags;
+const { isMochaFlag }: { isMochaFlag: (flag: string) => boolean } =
+  require("./run-option-metadata");
+const unparse: (opts: Record<string, unknown>) => string[] =
+  require("yargs-unparser");
 
 /**
  * These flags are considered "debug" flags.
  * @see {@link impliesNoTimeouts}
  * @private
  */
-const debugFlags = new Set(["inspect", "inspect-brk"]);
+const debugFlags: Set<string> = new Set(["inspect", "inspect-brk"]);
 
 /**
  * Mocha has historical support for various `node` and V8 flags which might not
@@ -29,12 +32,9 @@ const debugFlags = new Set(["inspect", "inspect-brk"]);
  *   - `--use-strict`
  *   - `--v8-*` (but *not* `--v8-options`)
  * @summary Whether or not to pass a flag along to the `node` executable.
- * @param {string} flag - Flag to test
- * @param {boolean} [bareword=true] - If `false`, we expect `flag` to have one or two leading dashes.
- * @returns {boolean} If the flag is considered a "Node" flag.
  * @private
  */
-exports.isNodeFlag = (flag, bareword = true) => {
+exports.isNodeFlag = (flag: string, bareword: boolean = true): boolean => {
   if (!bareword) {
     // check if the flag begins with dashes; if not, not a node flag.
     if (!/^--?/.test(flag)) {
@@ -58,27 +58,23 @@ exports.isNodeFlag = (flag, bareword = true) => {
 /**
  * Returns `true` if the flag is a "debug-like" flag.  These require timeouts
  * to be suppressed, or pausing the debugger on breakpoints will cause test failures.
- * @param {string} flag - Flag to test
- * @returns {boolean}
  * @private
  */
-exports.impliesNoTimeouts = (flag) => debugFlags.has(flag);
+exports.impliesNoTimeouts = (flag: string): boolean => debugFlags.has(flag);
 
 /**
  * All non-strictly-boolean arguments to node--those with values--must specify those values using `=`, e.g., `--inspect=0.0.0.0`.
  * Unparse these arguments using `yargs-unparser` (which would result in `--inspect 0.0.0.0`), then supply `=` where we have values.
  * There's probably an easier or more robust way to do this; fixes welcome
- * @param {Object} opts - Arguments object
- * @returns {string[]} Unparsed arguments using `=` to specify values
  * @private
  */
-exports.unparseNodeFlags = (opts) => {
-  var args = unparse(opts);
+exports.unparseNodeFlags = (opts: Record<string, unknown>): string[] => {
+  const args = unparse(opts);
   return args.length
     ? args
         .join(" ")
         .split(/\b/)
-        .map((arg) => (arg === " " ? "=" : arg))
+        .map((arg: string) => (arg === " " ? "=" : arg))
         .join("")
         .split(" ")
     : [];

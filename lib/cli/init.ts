@@ -7,20 +7,26 @@
  * @module
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
+import type { Argv, ArgumentsCamelCase } from "yargs";
+
+const fs: typeof import("node:fs") = require("node:fs");
+const path: typeof import("node:path") = require("node:path");
+
+interface InitArgs {
+  path: string;
+}
 
 exports.command = "init <path>";
 
 exports.description = "create a client-side Mocha setup at <path>";
 
-exports.builder = (yargs) =>
+exports.builder = (yargs: Argv): Argv<InitArgs> =>
   yargs.positional("path", {
     type: "string",
     normalize: true,
-  });
+  }) as Argv<InitArgs>;
 
-exports.handler = (argv) => {
+exports.handler = (argv: ArgumentsCamelCase<InitArgs>): void => {
   const destdir = argv.path;
   const srcdir = path.join(__dirname, "..", "..");
   fs.mkdirSync(destdir, { recursive: true });

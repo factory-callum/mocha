@@ -8,25 +8,46 @@
  * @module lib/cli
  */
 
-const debug = require("debug")("mocha:cli:cli");
-const yargs = require("yargs");
-const path = require("node:path");
+import type { Argv, CommandModule, ParserConfigurationOptions } from "yargs";
+
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:cli");
+const yargs: () => Argv = require("yargs");
+const path: typeof import("node:path") = require("node:path");
 const {
   loadRc,
   loadPkgRc,
   loadOptions,
   YARGS_PARSER_CONFIG,
+}: {
+  loadRc: (filepath: string) => Record<string, unknown>;
+  loadPkgRc: (args: Record<string, unknown>) => Record<string, unknown>;
+  loadOptions: (argv: string[]) => Record<string, unknown> & { _: string[] };
+  YARGS_PARSER_CONFIG: ParserConfigurationOptions;
 } = require("./options");
-const lookupFiles = require("./lookup-files");
-const commands = require("./commands");
-const pc = require("picocolors");
+const lookupFiles: (
+  filepath: string,
+  extensions?: string[],
+  recursive?: boolean,
+) => string[] | string | undefined = require("./lookup-files");
+const commands: { run: CommandModule; init: CommandModule } =
+  require("./commands");
+const pc: typeof import("picocolors") = require("picocolors");
 const {
   repository,
   homepage,
   version,
   discord,
+}: {
+  repository: { url: string };
+  homepage: string;
+  version: string;
+  discord: string;
 } = require("../../package.json");
-const { cwd, logSymbols } = require("../utils");
+const { cwd, logSymbols }: {
+  cwd: () => string;
+  logSymbols: Record<string, string>;
+} = require("../utils");
 
 /**
  * - Accepts an `Array` of arguments
@@ -34,10 +55,11 @@ const { cwd, logSymbols } = require("../utils");
  * - Sets {@linkcode https://nodejs.org/api/errors.html#errors_error_stacktracelimit Error.stackTraceLimit} to `Infinity`
  * @public
  * @summary Mocha's main command-line entry-point.
- * @param {string[]} argv - Array of arguments to parse, or by default the lovely `process.argv.slice(2)`
- * @param {object} [mochaArgs] - Object of already parsed Mocha arguments (by bin/mocha)
  */
-exports.main = (argv = process.argv.slice(2), mochaArgs) => {
+exports.main = (
+  argv: string[] = process.argv.slice(2),
+  mochaArgs?: Record<string, unknown> & { _: string[] },
+): void => {
   debug("entered main with raw args", argv);
   // ensure we can require() from current working directory
   if (typeof module.paths !== "undefined") {
@@ -50,7 +72,7 @@ exports.main = (argv = process.argv.slice(2), mochaArgs) => {
     debug("unable to set Error.stackTraceLimit = Infinity", err);
   }
 
-  var args = mochaArgs || loadOptions(argv);
+  const args = mochaArgs || loadOptions(argv);
 
   yargs()
     .scriptName("mocha")
@@ -61,7 +83,7 @@ exports.main = (argv = process.argv.slice(2), mochaArgs) => {
       "Options:": "Other Options",
       "Commands:": "Commands",
     })
-    .fail((msg, err, yargs) => {
+    .fail((msg: string, err: Error | undefined, yargs: Argv) => {
       debug("caught error sometime before command handler: %O", err);
       yargs.showHelp();
       console.error(`\n${logSymbols.error} ${pc.red("ERROR:")} ${msg}`);

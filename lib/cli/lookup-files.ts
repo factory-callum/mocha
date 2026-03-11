@@ -5,13 +5,27 @@
  * @private
  */
 
-var fs = require("node:fs");
-var path = require("node:path");
-var glob = require("glob");
-var errors = require("../errors");
-var createNoFilesMatchPatternError = errors.createNoFilesMatchPatternError;
-var createMissingArgumentError = errors.createMissingArgumentError;
-const debug = require("debug")("mocha:cli:lookup-files");
+const fs: typeof import("node:fs") = require("node:fs");
+const path: typeof import("node:path") = require("node:path");
+const glob: {
+  sync: (pattern: string, opts?: Record<string, unknown>) => string[];
+  hasMagic: (pattern: string, opts?: Record<string, unknown>) => boolean;
+} = require("glob");
+const errors: {
+  createNoFilesMatchPatternError: (
+    message: string,
+    pattern: string,
+  ) => Error & { code: string; pattern: string };
+  createMissingArgumentError: (
+    message: string,
+    argument: string,
+    expected: string,
+  ) => Error & { code: string };
+} = require("../errors");
+const createNoFilesMatchPatternError = errors.createNoFilesMatchPatternError;
+const createMissingArgumentError = errors.createMissingArgumentError;
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:lookup-files");
 
 /**
  * Determines if pathname would be a "hidden" file (or directory) on UN*X.
@@ -23,12 +37,11 @@ const debug = require("debug")("mocha:cli:lookup-files");
  * @see {@link http://xahlee.info/UnixResource_dir/writ/unix_origin_of_dot_filename.html|Origin of Dot File Names}
  *
  * @private
- * @param {string} pathname - Pathname to check for match.
- * @return {boolean} whether pathname would be considered a hidden file.
  * @example
  * isHiddenOnUnix('.profile'); // => true
  */
-const isHiddenOnUnix = (pathname) => path.basename(pathname).startsWith(".");
+const isHiddenOnUnix = (pathname: string): boolean =>
+  path.basename(pathname).startsWith(".");
 
 /**
  * Determines if pathname has a matching file extension.
@@ -36,15 +49,12 @@ const isHiddenOnUnix = (pathname) => path.basename(pathname).startsWith(".");
  * Supports multi-part extensions.
  *
  * @private
- * @param {string} pathname - Pathname to check for match.
- * @param {string[]} exts - List of file extensions, w/-or-w/o leading period
- * @return {boolean} `true` if file extension matches.
  * @example
  * hasMatchingExtname('foo.html', ['js', 'css']); // false
  * hasMatchingExtname('foo.js', ['.js']); // true
- * hasMatchingExtname('foo.js', ['js']); // ture
+ * hasMatchingExtname('foo.js', ['js']); // true
  */
-const hasMatchingExtname = (pathname, exts = []) =>
+const hasMatchingExtname = (pathname: string, exts: string[] = []): boolean =>
   exts
     .map((ext) => (ext.startsWith(".") ? ext : `.${ext}`))
     .some((ext) => pathname.endsWith(ext));
@@ -58,23 +68,19 @@ const hasMatchingExtname = (pathname, exts = []) =>
  *
  * @public
  * @alias module:lib/cli.lookupFiles
- * @param {string} filepath - Base path to start searching from.
- * @param {string[]} [extensions=[]] - File extensions to look for.
- * @param {boolean} [recursive=false] - Whether to recurse into subdirectories.
- * @return {string[]} An array of paths.
  * @throws {Error} if no files match pattern.
  * @throws {TypeError} if `filepath` is directory and `extensions` not provided.
  */
 module.exports = function lookupFiles(
-  filepath,
-  extensions = [],
-  recursive = false,
-) {
-  const files = [];
-  let stat;
+  filepath: string,
+  extensions: string[] = [],
+  recursive: boolean = false,
+): string[] | string | undefined {
+  const files: string[] = [];
+  let stat: import("node:fs").Stats | undefined;
 
   if (!fs.existsSync(filepath)) {
-    let pattern;
+    let pattern: string;
     if (glob.hasMagic(filepath, { windowsPathsNoEscape: true })) {
       // Handle glob as is without extensions
       pattern = filepath;
@@ -95,7 +101,7 @@ module.exports = function lookupFiles(
         // glob@8 and earlier sorted results in en; glob@9 depends on OS sorting.
         // This preserves the older glob behavior.
         // https://github.com/mochajs/mocha/pull/5250/files#r1840469747
-        .sort((a, b) => a.localeCompare(b, "en")),
+        .sort((a: string, b: string) => a.localeCompare(b, "en")),
     );
     if (!files.length) {
       throw createNoFilesMatchPatternError(
@@ -118,15 +124,20 @@ module.exports = function lookupFiles(
   }
 
   // Handle directory
-  fs.readdirSync(filepath).forEach((dirent) => {
+  fs.readdirSync(filepath).forEach((dirent: string) => {
     const pathname = path.join(filepath, dirent);
-    let stat;
+    let stat: import("node:fs").Stats | undefined;
 
     try {
       stat = fs.statSync(pathname);
       if (stat.isDirectory()) {
         if (recursive) {
-          files.push(...lookupFiles(pathname, extensions, recursive));
+          const result = lookupFiles(pathname, extensions, recursive);
+          if (Array.isArray(result)) {
+            files.push(...result);
+          } else if (typeof result === "string") {
+            files.push(result);
+          }
         }
         return;
       }
@@ -142,7 +153,7 @@ module.exports = function lookupFiles(
     }
 
     if (
-      !stat.isFile() ||
+      !stat!.isFile() ||
       !hasMatchingExtname(pathname, extensions) ||
       isHiddenOnUnix(pathname)
     ) {

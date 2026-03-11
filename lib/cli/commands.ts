@@ -7,8 +7,17 @@
  * @module
  */
 
-module.exports = {
+import type { CommandModule } from "yargs";
+
+interface Commands {
+  init: CommandModule;
+  run: CommandModule;
+}
+
+const commands: Commands = {
   init: require("./init"),
   // default command
   run: require("./run"),
 };
+
+module.exports = commands;

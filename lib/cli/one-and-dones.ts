@@ -8,16 +8,23 @@
  * @private
  */
 
-const Mocha = require("../mocha");
+interface ShowKeysEntry {
+  description?: string;
+  browserOnly?: boolean;
+  abstract?: boolean;
+}
+
+const Mocha: {
+  interfaces: Record<string, ShowKeysEntry>;
+  reporters: Record<string, ShowKeysEntry>;
+} = require("../mocha");
 
 /**
  * Dumps a sorted list of the enumerable, lower-case keys of some object
  * to `STDOUT`.
- * @param {Object} obj - Object, ostensibly having some enumerable keys
- * @ignore
  * @private
  */
-const showKeys = (obj) => {
+const showKeys = (obj: Record<string, ShowKeysEntry>): void => {
   console.log();
   const keys = Object.keys(obj);
   const maxKeyLength = keys.reduce((max, key) => Math.max(max, key.length), 0);
@@ -48,23 +55,22 @@ exports.ONE_AND_DONES = {
    * Dump list of built-in interfaces
    * @private
    */
-  "list-interfaces": () => {
+  "list-interfaces": (): void => {
     showKeys(Mocha.interfaces);
   },
   /**
    * Dump list of built-in reporters
    * @private
    */
-  "list-reporters": () => {
+  "list-reporters": (): void => {
     showKeys(Mocha.reporters);
   },
-};
+} as Record<string, () => void>;
 
 /**
  * A Set of all one-and-done options
- * @type Set<string>
  * @private
  */
-exports.ONE_AND_DONE_ARGS = new Set(
+exports.ONE_AND_DONE_ARGS = new Set<string>(
   ["help", "h", "version", "V"].concat(Object.keys(exports.ONE_AND_DONES)),
 );
