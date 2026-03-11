@@ -6,7 +6,7 @@
  * @namespace
  * @memberof module:lib/errors
  */
-var constants = {
+const constants = {
   /**
    * An unrecoverable error.
    * @constant
@@ -118,6 +118,13 @@ var constants = {
    * @default
    */
   UNPARSABLE_FILE: "ERR_MOCHA_UNPARSABLE_FILE",
-};
+} as const;
+
+/**
+ * The type representing all possible Mocha error code values.
+ */
+type MochaErrorCode = (typeof constants)[keyof typeof constants];
 
 module.exports = { constants };
+
+export { constants, MochaErrorCode };

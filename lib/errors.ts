@@ -1,12 +1,5 @@
 "use strict";
 
-/**
- * @typedef {import('./mocha.js')} Mocha
- * @typedef {import('./runnable.js')} Runnable
- * @typedef {import('./types.d.ts').MochaTimeoutError} MochaTimeoutError
- * @typedef {import('./types.d.ts').PluginDefinition} PluginDefinition
- */
-
 const { format } = require("node:util");
 const { constants } = require("./error-constants.js");
 const { isCI } = require("./utils");
@@ -18,11 +11,151 @@ const { isCI } = require("./utils");
  */
 
 /**
+ * Interface for errors with a Mocha error code.
+ */
+interface MochaError extends Error {
+  code: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Interface for no-files-match-pattern errors.
+ */
+interface NoFilesMatchPatternError extends MochaError {
+  pattern: string;
+}
+
+/**
+ * Interface for invalid reporter errors.
+ */
+interface InvalidReporterError extends MochaError {
+  reporter: string;
+}
+
+/**
+ * Interface for invalid interface errors.
+ */
+interface InvalidInterfaceError extends MochaError {
+  interface: string;
+}
+
+/**
+ * Interface for invalid argument type errors.
+ */
+interface InvalidArgumentTypeError extends MochaError {
+  argument: string;
+  expected: string;
+  actual: string;
+}
+
+/**
+ * Interface for invalid argument value errors.
+ */
+interface InvalidArgumentValueError extends MochaError {
+  argument: string;
+  value: unknown;
+  reason: string;
+}
+
+/**
+ * Interface for invalid exception errors.
+ */
+interface InvalidExceptionError extends MochaError {
+  valueType: string;
+  value: unknown;
+}
+
+/**
+ * Interface for fatal errors.
+ */
+interface FatalError extends MochaError {
+  valueType: string;
+  value: unknown;
+}
+
+/**
+ * Interface for instance-already-disposed errors.
+ */
+interface InstanceAlreadyDisposedError extends MochaError {
+  cleanReferencesAfterRun: boolean;
+  instance: unknown;
+}
+
+/**
+ * Interface for instance-already-running errors.
+ */
+interface InstanceAlreadyRunningError extends MochaError {
+  instance: unknown;
+}
+
+/**
+ * Interface for multiple-done errors.
+ */
+interface MultipleDoneError extends MochaError {
+  valueType: string;
+  value: unknown;
+}
+
+/**
+ * Type alias for forbidden-exclusivity errors.
+ */
+type ForbiddenExclusivityError = MochaError;
+
+/**
+ * Interface for invalid plugin definition errors.
+ */
+interface InvalidPluginDefinitionError extends MochaError {
+  pluginDef: unknown;
+}
+
+/**
+ * Interface for invalid plugin implementation errors.
+ */
+interface InvalidPluginImplementationError extends MochaError {
+  pluginDef: unknown;
+  pluginImpl: unknown;
+}
+
+/**
+ * Interface for timeout errors.
+ */
+interface TimeoutError extends MochaError {
+  timeout: number | undefined;
+  file: string | undefined;
+}
+
+/**
+ * Type alias for unparsable file errors.
+ */
+type UnparsableFileError = MochaError;
+
+/**
+ * Minimal interface for Runnable-like objects used in error creation.
+ */
+interface RunnableLike {
+  fullTitle(): string;
+  title: string;
+  type?: string;
+  file?: string;
+  parent: {
+    root?: boolean;
+    fullTitle(): string;
+  };
+}
+
+/**
+ * Minimal interface for Mocha-like objects used in error creation.
+ */
+interface MochaLike {
+  isWorker?: boolean;
+}
+
+/**
  * process.emitWarning or a polyfill
  * @see https://nodejs.org/api/process.html#process_process_emitwarning_warning_options
  * @ignore
  */
-const emitWarning = (msg, type) => {
+const emitWarning = (msg: string, type?: string): void => {
   if (process.emitWarning) {
     process.emitWarning(msg, type);
   } else {
@@ -37,26 +170,24 @@ const emitWarning = (msg, type) => {
  * Show a deprecation warning. Each distinct message is only displayed once.
  * Ignores empty messages.
  *
- * @param {string} [msg] - Warning to print
  * @private
  */
-const deprecate = (msg) => {
-  msg = String(msg);
-  if (msg && !deprecate.cache[msg]) {
-    deprecate.cache[msg] = true;
-    emitWarning(msg, "DeprecationWarning");
+const deprecate = (msg?: string): void => {
+  const str = String(msg);
+  if (str && !deprecate.cache[str]) {
+    deprecate.cache[str] = true;
+    emitWarning(str, "DeprecationWarning");
   }
 };
-deprecate.cache = {};
+deprecate.cache = {} as Record<string, boolean>;
 
 /**
  * Show a generic warning.
  * Ignores empty messages.
  *
- * @param {string} [msg] - Warning to print
  * @private
  */
-const warn = (msg) => {
+const warn = (msg?: string): void => {
   if (msg) {
     emitWarning(msg);
   }
@@ -66,19 +197,19 @@ const warn = (msg) => {
  * A set containing all string values of all Mocha error constants, for use by {@link isMochaError}.
  * @private
  */
-const MOCHA_ERRORS = new Set(Object.values(constants));
+const MOCHA_ERRORS: Set<string> = new Set(Object.values(constants));
 
 /**
  * Creates an error object to be thrown when no files to be tested could be found using specified pattern.
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @param {string} pattern - User-specified argument value.
- * @returns {Error} instance detailing the error condition
  */
-function createNoFilesMatchPatternError(message, pattern) {
-  var err = new Error(message);
+function createNoFilesMatchPatternError(
+  message: string,
+  pattern: string,
+): NoFilesMatchPatternError {
+  const err = new Error(message) as NoFilesMatchPatternError;
   err.code = constants.NO_FILES_MATCH_PATTERN;
   err.pattern = pattern;
   return err;
@@ -88,12 +219,12 @@ function createNoFilesMatchPatternError(message, pattern) {
  * Creates an error object to be thrown when the reporter specified in the options was not found.
  *
  * @public
- * @param {string} message - Error message to be displayed.
- * @param {string} reporter - User-specified reporter value.
- * @returns {Error} instance detailing the error condition
  */
-function createInvalidReporterError(message, reporter) {
-  var err = new TypeError(message);
+function createInvalidReporterError(
+  message: string,
+  reporter: string,
+): InvalidReporterError {
+  const err = new TypeError(message) as InvalidReporterError;
   err.code = constants.INVALID_REPORTER;
   err.reporter = reporter;
   return err;
@@ -104,12 +235,12 @@ function createInvalidReporterError(message, reporter) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @param {string} ui - User-specified interface value.
- * @returns {Error} instance detailing the error condition
  */
-function createInvalidInterfaceError(message, ui) {
-  var err = new Error(message);
+function createInvalidInterfaceError(
+  message: string,
+  ui: string,
+): InvalidInterfaceError {
+  const err = new Error(message) as InvalidInterfaceError;
   err.code = constants.INVALID_INTERFACE;
   err.interface = ui;
   return err;
@@ -120,11 +251,9 @@ function createInvalidInterfaceError(message, ui) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @returns {Error} instance detailing the error condition
  */
-function createUnsupportedError(message) {
-  var err = new Error(message);
+function createUnsupportedError(message: string): MochaError {
+  const err = new Error(message) as MochaError;
   err.code = constants.UNSUPPORTED;
   return err;
 }
@@ -134,12 +263,12 @@ function createUnsupportedError(message) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @param {string} argument - Argument name.
- * @param {string} expected - Expected argument datatype.
- * @returns {Error} instance detailing the error condition
  */
-function createMissingArgumentError(message, argument, expected) {
+function createMissingArgumentError(
+  message: string,
+  argument: string,
+  expected: string,
+): InvalidArgumentTypeError {
   return createInvalidArgumentTypeError(message, argument, expected);
 }
 
@@ -148,13 +277,13 @@ function createMissingArgumentError(message, argument, expected) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @param {string} argument - Argument name.
- * @param {string} expected - Expected argument datatype.
- * @returns {Error} instance detailing the error condition
  */
-function createInvalidArgumentTypeError(message, argument, expected) {
-  var err = new TypeError(message);
+function createInvalidArgumentTypeError(
+  message: string,
+  argument: string,
+  expected: string,
+): InvalidArgumentTypeError {
+  const err = new TypeError(message) as InvalidArgumentTypeError;
   err.code = constants.INVALID_ARG_TYPE;
   err.argument = argument;
   err.expected = expected;
@@ -167,14 +296,14 @@ function createInvalidArgumentTypeError(message, argument, expected) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @param {string} argument - Argument name.
- * @param {string} value - Argument value.
- * @param {string} [reason] - Why value is invalid.
- * @returns {Error} instance detailing the error condition
  */
-function createInvalidArgumentValueError(message, argument, value, reason) {
-  var err = new TypeError(message);
+function createInvalidArgumentValueError(
+  message: string,
+  argument: string,
+  value: unknown,
+  reason?: string,
+): InvalidArgumentValueError {
+  const err = new TypeError(message) as InvalidArgumentValueError;
   err.code = constants.INVALID_ARG_VALUE;
   err.argument = argument;
   err.value = value;
@@ -187,11 +316,12 @@ function createInvalidArgumentValueError(message, argument, value, reason) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @returns {Error} instance detailing the error condition
  */
-function createInvalidExceptionError(message, value) {
-  var err = new Error(message);
+function createInvalidExceptionError(
+  message: string,
+  value: unknown,
+): InvalidExceptionError {
+  const err = new Error(message) as InvalidExceptionError;
   err.code = constants.INVALID_EXCEPTION;
   err.valueType = typeof value;
   err.value = value;
@@ -203,11 +333,9 @@ function createInvalidExceptionError(message, value) {
  *
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @returns {Error} instance detailing the error condition
  */
-function createFatalError(message, value) {
-  var err = new Error(message);
+function createFatalError(message: string, value: unknown): FatalError {
+  const err = new Error(message) as FatalError;
   err.code = constants.FATAL;
   err.valueType = typeof value;
   err.value = value;
@@ -216,54 +344,50 @@ function createFatalError(message, value) {
 
 /**
  * Dynamically creates a plugin-type-specific error based on plugin type
- * @param {string} message - Error message
- * @param {"reporter"|"ui"} pluginType - Plugin type. Future: expand as needed
- * @param {string} [pluginId] - Name/path of plugin, if any
- * @throws When `pluginType` is not known
+ *
  * @public
  * @static
- * @returns {Error}
+ * @throws When `pluginType` is not known
  */
-function createInvalidLegacyPluginError(message, pluginType, pluginId) {
+function createInvalidLegacyPluginError(
+  message: string,
+  pluginType: "reporter" | "ui",
+  pluginId?: string,
+): InvalidReporterError | InvalidInterfaceError {
   switch (pluginType) {
     case "reporter":
-      return createInvalidReporterError(message, pluginId);
+      return createInvalidReporterError(message, pluginId!);
     case "ui":
-      return createInvalidInterfaceError(message, pluginId);
+      return createInvalidInterfaceError(message, pluginId!);
     default:
       throw new Error('unknown pluginType "' + pluginType + '"');
   }
 }
 
 /**
- * **DEPRECATED**.  Use {@link createInvalidLegacyPluginError} instead  Dynamically creates a plugin-type-specific error based on plugin type
+ * **DEPRECATED**.  Use {@link createInvalidLegacyPluginError} instead.
+ * Dynamically creates a plugin-type-specific error based on plugin type
  * @deprecated
- * @param {string} message - Error message
- * @param {"reporter"|"interface"} pluginType - Plugin type. Future: expand as needed
- * @param {string} [pluginId] - Name/path of plugin, if any
- * @throws When `pluginType` is not known
  * @public
  * @static
- * @returns {Error}
  */
-function createInvalidPluginError(...args) {
+function createInvalidPluginError(
+  ...args: Parameters<typeof createInvalidLegacyPluginError>
+): InvalidReporterError | InvalidInterfaceError {
   deprecate("Use createInvalidLegacyPluginError() instead");
   return createInvalidLegacyPluginError(...args);
 }
 
 /**
  * Creates an error object to be thrown when a mocha object's `run` method is executed while it is already disposed.
- * @param {string} message The error message to be displayed.
- * @param {boolean} cleanReferencesAfterRun the value of `cleanReferencesAfterRun`
- * @param {Mocha} instance the mocha instance that throw this error
  * @static
  */
 function createMochaInstanceAlreadyDisposedError(
-  message,
-  cleanReferencesAfterRun,
-  instance,
-) {
-  var err = new Error(message);
+  message: string,
+  cleanReferencesAfterRun: boolean,
+  instance: unknown,
+): InstanceAlreadyDisposedError {
+  const err = new Error(message) as InstanceAlreadyDisposedError;
   err.code = constants.INSTANCE_ALREADY_DISPOSED;
   err.cleanReferencesAfterRun = cleanReferencesAfterRun;
   err.instance = instance;
@@ -272,12 +396,14 @@ function createMochaInstanceAlreadyDisposedError(
 
 /**
  * Creates an error object to be thrown when a mocha object's `run` method is called while a test run is in progress.
- * @param {string} message The error message to be displayed.
  * @static
  * @public
  */
-function createMochaInstanceAlreadyRunningError(message, instance) {
-  var err = new Error(message);
+function createMochaInstanceAlreadyRunningError(
+  message: string,
+  instance: unknown,
+): InstanceAlreadyRunningError {
+  const err = new Error(message) as InstanceAlreadyRunningError;
   err.code = constants.INSTANCE_ALREADY_RUNNING;
   err.instance = instance;
   return err;
@@ -287,13 +413,13 @@ function createMochaInstanceAlreadyRunningError(message, instance) {
  * Creates an error object to be thrown when done() is called multiple times in a test
  *
  * @public
- * @param {Runnable} runnable - Original runnable
- * @param {Error} [originalErr] - Original error, if any
- * @returns {Error} instance detailing the error condition
  * @static
  */
-function createMultipleDoneError(runnable, originalErr) {
-  var title;
+function createMultipleDoneError(
+  runnable: RunnableLike,
+  originalErr?: Error,
+): MultipleDoneError {
+  let title: string;
   try {
     title = format("<%s>", runnable.fullTitle());
     if (runnable.parent.root) {
@@ -302,7 +428,7 @@ function createMultipleDoneError(runnable, originalErr) {
   } catch {
     title = format("<%s> (of unknown suite)", runnable.title);
   }
-  var message = format(
+  let message = format(
     "done() called multiple times in %s %s",
     runnable.type ? runnable.type : "unknown runnable",
     title,
@@ -314,7 +440,7 @@ function createMultipleDoneError(runnable, originalErr) {
     message += format("; in addition, done() received error: %s", originalErr);
   }
 
-  var err = new Error(message);
+  const err = new Error(message) as MultipleDoneError;
   err.code = constants.MULTIPLE_DONE;
   err.valueType = typeof originalErr;
   err.value = originalErr;
@@ -326,11 +452,11 @@ function createMultipleDoneError(runnable, originalErr) {
  * `--forbid-only`.
  * @static
  * @public
- * @param {Mocha} mocha - Mocha instance
- * @returns {Error} Error with code {@link constants.FORBIDDEN_EXCLUSIVITY}
  */
-function createForbiddenExclusivityError(mocha) {
-  var message;
+function createForbiddenExclusivityError(
+  mocha: MochaLike,
+): ForbiddenExclusivityError {
+  let message: string;
   if (mocha.isWorker) {
     message = "`.only` is not supported in parallel mode";
   } else {
@@ -340,7 +466,7 @@ function createForbiddenExclusivityError(mocha) {
     }
   }
 
-  var err = new Error(message);
+  const err = new Error(message) as ForbiddenExclusivityError;
   err.code = constants.FORBIDDEN_EXCLUSIVITY;
   return err;
 }
@@ -348,13 +474,13 @@ function createForbiddenExclusivityError(mocha) {
 /**
  * Creates an error object to be thrown when a plugin definition is invalid
  * @static
- * @param {string} msg - Error message
- * @param {PluginDefinition} [pluginDef] - Problematic plugin definition
  * @public
- * @returns {Error} Error with code {@link constants.INVALID_PLUGIN_DEFINITION}
  */
-function createInvalidPluginDefinitionError(msg, pluginDef) {
-  const err = new Error(msg);
+function createInvalidPluginDefinitionError(
+  msg: string,
+  pluginDef?: unknown,
+): InvalidPluginDefinitionError {
+  const err = new Error(msg) as InvalidPluginDefinitionError;
   err.code = constants.INVALID_PLUGIN_DEFINITION;
   err.pluginDef = pluginDef;
   return err;
@@ -363,18 +489,13 @@ function createInvalidPluginDefinitionError(msg, pluginDef) {
 /**
  * Creates an error object to be thrown when a plugin implementation (user code) is invalid
  * @static
- * @param {string} msg - Error message
- * @param {Object} [opts] - Plugin definition and user-supplied implementation
- * @param {PluginDefinition} [opts.pluginDef] - Plugin Definition
- * @param {*} [opts.pluginImpl] - Plugin Implementation (user-supplied)
  * @public
- * @returns {Error} Error with code {@link constants.INVALID_PLUGIN_DEFINITION}
  */
 function createInvalidPluginImplementationError(
-  msg,
-  { pluginDef, pluginImpl } = {},
-) {
-  const err = new Error(msg);
+  msg: string,
+  { pluginDef, pluginImpl }: { pluginDef?: unknown; pluginImpl?: unknown } = {},
+): InvalidPluginImplementationError {
+  const err = new Error(msg) as InvalidPluginImplementationError;
   err.code = constants.INVALID_PLUGIN_IMPLEMENTATION;
   err.pluginDef = pluginDef;
   err.pluginImpl = pluginImpl;
@@ -384,13 +505,13 @@ function createInvalidPluginImplementationError(
 /**
  * Creates an error object to be thrown when a runnable exceeds its allowed run time.
  * @static
- * @param {string} msg - Error message
- * @param {number} [timeout] - Timeout in ms
- * @param {string} [file] - File, if given
- * @returns {MochaTimeoutError}
  */
-function createTimeoutError(msg, timeout, file) {
-  const err = new Error(msg);
+function createTimeoutError(
+  msg: string,
+  timeout?: number,
+  file?: string,
+): TimeoutError {
+  const err = new Error(msg) as TimeoutError;
   err.code = constants.TIMEOUT;
   err.timeout = timeout;
   err.file = file;
@@ -401,11 +522,9 @@ function createTimeoutError(msg, timeout, file) {
  * Creates an error object to be thrown when file is unparsable
  * @public
  * @static
- * @param {string} message - Error message to be displayed.
- * @returns {Error} Error with code {@link constants.UNPARSABLE_FILE}
  */
-function createUnparsableFileError(message) {
-  var err = new Error(message);
+function createUnparsableFileError(message: string): UnparsableFileError {
+  const err = new Error(message) as UnparsableFileError;
   err.code = constants.UNPARSABLE_FILE;
   return err;
 }
@@ -415,11 +534,13 @@ function createUnparsableFileError(message) {
  * _Can suffer from false negatives, but not false positives._
  * @static
  * @public
- * @param {*} err - Error, or anything
- * @returns {boolean}
  */
-const isMochaError = (err) =>
-  Boolean(err && typeof err === "object" && MOCHA_ERRORS.has(err.code));
+const isMochaError = (err: unknown): boolean =>
+  Boolean(
+    err &&
+      typeof err === "object" &&
+      MOCHA_ERRORS.has((err as Record<string, unknown>).code as string),
+  );
 
 module.exports = {
   createFatalError,
