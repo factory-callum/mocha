@@ -1,7 +1,7 @@
 {
   "milestone": "core-modules",
-  "round": 1,
-  "status": "fail",
+  "round": 2,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,50 +20,14 @@
     }
   },
   "reviewsSummary": {
-    "total": 4,
-    "passed": 3,
-    "failed": 1,
-    "failedFeatures": [
-      "core-runner"
-    ]
+    "total": 1,
+    "passed": 1,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "core-runner",
-      "severity": "blocking",
-      "description": "Runner event/state constants are required to be string-literal typed, but literals are erased by utils.defineConstants typing (returns Readonly<Record<string, unknown>>), leading to downstream casts like `as string` instead of enforced literal unions."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [
-    {
-      "target": "migration-worker skill",
-      "suggestion": "Add explicit guidance that `utils.defineConstants` currently erases literal types; when a feature requires string-literal event constants, workers should either preserve literal typing via typed constant objects / helper overloads or update utility typing accordingly.",
-      "evidence": "core-runner review failed on this exact mismatch; lib/utils.ts defines `defineConstants(obj: Record<string, unknown>): Readonly<Record<string, unknown>>` and lib/runner.ts uses `as string` casts.",
-      "isSystemic": true
-    },
-    {
-      "target": "migration-worker skill",
-      "suggestion": "Add a migration pitfall note about TDZ regressions when replacing `var` with `let/const` in callback result capture patterns.",
-      "evidence": "core-domain handoff skill feedback explicitly called out TDZ hazards encountered during migration.",
-      "isSystemic": false
-    },
-    {
-      "target": "feature planning conventions",
-      "suggestion": "Validate dependency-order statements in feature descriptions against actual import graph before assigning migration order.",
-      "evidence": "core-foundations feature description stated an incorrect dependency order (errors before utils), while implementation evidence documented the opposite import dependency.",
-      "isSystemic": false
-    }
-  ],
-  "rejectedObservations": [
-    {
-      "observation": "Stale compilation statement and pre-migration .js paths in .factory/library/architecture.md",
-      "reason": "deferred: factual but documentation-only, not required to determine pass/fail for this scrutiny round"
-    },
-    {
-      "observation": "Plugin loader `pluginDefs` singular-vs-array typing mismatch",
-      "reason": "non-blocking feature-level issue already captured in core-mocha review; not a shared-state update candidate"
-    }
-  ],
-  "previousRound": null
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/core-modules/scrutiny/synthesis.round1.json"
 }
