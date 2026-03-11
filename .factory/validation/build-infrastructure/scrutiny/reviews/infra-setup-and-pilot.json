@@ -1,0 +1,38 @@
+{
+  "featureId": "infra-setup-and-pilot",
+  "reviewedAt": "2026-03-11T02:40:14Z",
+  "commitId": "516ecee90f31ca9708643e9e947047626ef30690",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Most requested infrastructure and pilot migration changes were implemented, but a workflow gap remains: migrated modules now require compiled JS that is not guaranteed before several test workflows run.",
+    "issues": [
+      {
+        "file": "package.json",
+        "line": 68,
+        "severity": "blocking",
+        "description": "`test-node-run` and dependent scripts run without a compile prerequisite (e.g. package.json:71-84,85), while this commit removes tracked `lib/context.js`, `lib/hook.js`, and `lib/pending.js` (`git show --name-status` for commit 516ecee9). Runtime JS still requires those module paths (`lib/mocha.js:89,96`, `lib/runner.js:12`, `lib/runnable.js:4`, `lib/suite.js:12`). In a clean checkout (without ignored build artifacts), `test-node:*` workflows can fail unless compile runs first."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The infra-worker skill does not document the `allowJs` + emit conflict in mixed JS/TS in-place builds, which the worker had to discover during execution.",
+      "evidence": "handoff skillFeedback.suggestedChanges explicitly asks to clarify this incompatibility (handoff JSON lines 67-68); `.factory/skills/infra-worker/SKILL.md` has tsconfig guidance but no `allowJs` caveat (e.g. lines 21,31,38)."
+    },
+    {
+      "area": "services",
+      "observation": "Worker used an initialization command that is not represented in shared services command metadata.",
+      "evidence": "Transcript skeleton includes `bash .factory/init.sh` as an execution step (worker-transcripts entry for session 210bcc92-77a4-4f32-a430-eb68e11f14f5), while `.factory/services.yaml` only defines install/compile/typecheck/build/lint/test commands (lines 1-7)."
+    },
+    {
+      "area": "conventions",
+      "observation": "Mission/state docs do not clearly define whether `.factory/**` operational artifacts should be committed as part of feature commits, and this feature commit included multiple such files.",
+      "evidence": "`git show --name-status 516ecee9` includes added `.factory/init.sh`, `.factory/library/*`, `.factory/services.yaml`, and `.factory/skills/*`; AGENTS scope text focuses migration scope but does not explicitly set commit rules for `.factory/**` artifacts."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed with one blocking issue: compile is not wired into key node test workflows that now depend on generated JS for migrated modules. Shared-state observations were also noted around skill guidance, services metadata completeness, and `.factory` artifact commit conventions."
+}

@@ -1,0 +1,59 @@
+{
+  "milestone": "build-infrastructure",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test-node:unit",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:code",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 1,
+    "passed": 0,
+    "failed": 1,
+    "failedFeatures": [
+      "infra-setup-and-pilot"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "infra-setup-and-pilot",
+      "severity": "blocking",
+      "description": "`test-node-run` and dependent scripts run without a compile prerequisite while migrated modules now depend on generated JS artifacts in `lib/`; in a clean checkout this can break node test workflows unless compile runs first."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skill:infra-worker",
+      "suggestion": "Document the `allowJs` + emit incompatibility in mixed JS/TS in-place migrations and require explicitly removing or overriding `allowJs` when enabling emit.",
+      "evidence": "Review of infra-setup-and-pilot reported this as an execution gotcha and the current skill guidance does not mention the caveat.",
+      "isSystemic": false
+    },
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Clarify whether `.factory/**` operational artifacts should be committed as part of implementation feature commits versus treated as mission-local scaffolding.",
+      "evidence": "The reviewed feature commit included multiple `.factory/**` files, but mission guidance focuses source migration scope and does not explicitly define commit boundaries for `.factory/**` artifacts.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Worker used `bash .factory/init.sh` but `.factory/services.yaml` does not include an equivalent command.",
+      "reason": "ambiguous ownership; bootstrap/init behavior may be mission-runner specific rather than a shared service command requirement"
+    }
+  ],
+  "previousRound": null
+}
