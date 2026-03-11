@@ -10,14 +10,14 @@ const utils = require("./utils");
 const debug = require("debug")("mocha:runner");
 const Runnable = require("./runnable");
 const Suite = require("./suite");
-const HOOK_TYPE_BEFORE_EACH: string = Suite.constants.HOOK_TYPE_BEFORE_EACH;
-const HOOK_TYPE_AFTER_EACH: string = Suite.constants.HOOK_TYPE_AFTER_EACH;
-const HOOK_TYPE_AFTER_ALL: string = Suite.constants.HOOK_TYPE_AFTER_ALL;
-const HOOK_TYPE_BEFORE_ALL: string = Suite.constants.HOOK_TYPE_BEFORE_ALL;
-const EVENT_ROOT_SUITE_RUN: string = Suite.constants.EVENT_ROOT_SUITE_RUN;
-const STATE_FAILED: string = Runnable.constants.STATE_FAILED;
-const STATE_PASSED: string = Runnable.constants.STATE_PASSED;
-const STATE_PENDING: string = Runnable.constants.STATE_PENDING;
+const HOOK_TYPE_BEFORE_EACH = Suite.constants.HOOK_TYPE_BEFORE_EACH;
+const HOOK_TYPE_AFTER_EACH = Suite.constants.HOOK_TYPE_AFTER_EACH;
+const HOOK_TYPE_AFTER_ALL = Suite.constants.HOOK_TYPE_AFTER_ALL;
+const HOOK_TYPE_BEFORE_ALL = Suite.constants.HOOK_TYPE_BEFORE_ALL;
+const EVENT_ROOT_SUITE_RUN = Suite.constants.EVENT_ROOT_SUITE_RUN;
+const STATE_FAILED = Runnable.constants.STATE_FAILED;
+const STATE_PASSED = Runnable.constants.STATE_PASSED;
+const STATE_PENDING = Runnable.constants.STATE_PENDING;
 const stackFilter: (stack: string) => string = utils.stackTraceFilter();
 const stringify: (value: unknown) => string = utils.stringify;
 
@@ -291,7 +291,7 @@ class Runner extends EventEmitter {
     this._abort = false;
     this.suite = suite;
     this._opts = opts;
-    this.state = constants.STATE_IDLE as string;
+    this.state = constants.STATE_IDLE;
     this.total = suite.total();
     this.failures = 0;
     this._eventListeners = new Map();
@@ -1266,7 +1266,7 @@ class Runner extends EventEmitter {
         rootSuite.filterOnly();
         debug("run(): filtered exclusive Runnables");
       }
-      this.state = constants.STATE_RUNNING as string;
+      this.state = constants.STATE_RUNNING;
       if (this._opts.delay) {
         this.emit(constants.EVENT_DELAY_END);
         debug('run(): "delay" ended');
@@ -1284,7 +1284,7 @@ class Runner extends EventEmitter {
 
     // callback
     this.on(constants.EVENT_RUN_END, function (this: Runner) {
-      this.state = constants.STATE_STOPPED as string;
+      this.state = constants.STATE_STOPPED;
       debug("run(): emitted %s", constants.EVENT_RUN_END);
       fn!(this.failures);
     });

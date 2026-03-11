@@ -552,13 +552,13 @@ exports.createMap = function (
  * @see {@link module:utils.createMap createMap}
  * @throws {TypeError} if argument is not a non-empty object.
  */
-exports.defineConstants = function (
-  obj: Record<string, unknown>,
-): Readonly<Record<string, unknown>> {
+exports.defineConstants = function <T extends Record<string, string>>(
+  obj: T,
+): Readonly<T> {
   if (canonicalType(obj) !== "object" || !Object.keys(obj).length) {
     throw new TypeError("Invalid argument; expected a non-empty object");
   }
-  return Object.freeze(exports.createMap(obj));
+  return Object.freeze(exports.createMap(obj)) as Readonly<T>;
 };
 
 /**
