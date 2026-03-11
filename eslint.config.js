@@ -157,6 +157,7 @@ module.exports = defineConfig(
       "no-undef": "off",
       strict: "off",
       "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-this-alias": "off",
     },
   },
   {

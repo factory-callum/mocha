@@ -1,22 +1,46 @@
 "use strict";
-var Runnable = require("./runnable");
-var utils = require("./utils");
-var errors = require("./errors");
-var createInvalidArgumentTypeError = errors.createInvalidArgumentTypeError;
-var isString = utils.isString;
+const Runnable = require("./runnable");
+const utils = require("./utils");
+const errors = require("./errors");
+const createInvalidArgumentTypeError = errors.createInvalidArgumentTypeError;
+const isString = utils.isString;
 
 const { MOCHA_ID_PROP_NAME } = utils.constants;
 
+/** Interface for a serialized Test object suitable for IPC */
+interface SerializedTest {
+  $$currentRetry: number;
+  $$fullTitle: string;
+  $$isPending: boolean;
+  $$retriedTest: Test | null;
+  $$slow: number;
+  $$titlePath: string[];
+  body: string;
+  duration: number | undefined;
+  err: Error | undefined;
+  parent: {
+    $$fullTitle: string;
+    [key: string]: unknown;
+  };
+  speed: string | undefined;
+  state: string | undefined;
+  title: string;
+  type: string;
+  file: string | undefined;
+  [key: string]: unknown;
+}
+
 class Test extends Runnable {
+  type: string;
+  _retriedTest: Test | undefined;
+
   /**
    * Initialize a new `Test` with the given `title` and callback `fn`.
    *
    * @public
    * @extends Runnable
-   * @param {String} title - Test title (required)
-   * @param {Function} [fn] - Test callback.  If omitted, the Test is considered "pending"
    */
-  constructor(title, fn) {
+  constructor(title: string, fn?: (...args: unknown[]) => unknown) {
     if (!isString(title)) {
       throw createInvalidArgumentTypeError(
         'Test argument "title" should be a string. Received type "' +
@@ -34,7 +58,7 @@ class Test extends Runnable {
   /**
    * Resets the state initially or for a next run.
    */
-  reset() {
+  reset(): void {
     super.reset();
     this.pending = !this.fn;
     delete this.state;
@@ -45,7 +69,9 @@ class Test extends Runnable {
    *
    * @private
    */
-  retriedTest(n) {
+  retriedTest(): Test | undefined;
+  retriedTest(n: Test): void;
+  retriedTest(n?: Test): Test | undefined | void {
     if (!arguments.length) {
       return this._retriedTest;
     }
@@ -57,12 +83,12 @@ class Test extends Runnable {
    *
    * @private
    */
-  markOnly() {
+  markOnly(): void {
     this.parent.appendOnlyTest(this);
   }
 
-  clone() {
-    var test = new Test(this.title, this.fn);
+  clone(): Test {
+    const test = new Test(this.title, this.fn);
     test.timeout(this.timeout());
     test.slow(this.slow());
     test.retries(this.retries());
@@ -76,12 +102,11 @@ class Test extends Runnable {
   }
 
   /**
-   * Returns an minimal object suitable for transmission over IPC.
+   * Returns a minimal object suitable for transmission over IPC.
    * Functions are represented by keys beginning with `$$`.
    * @private
-   * @returns {Object}
    */
-  serialize() {
+  serialize(): SerializedTest {
     return {
       $$currentRetry: this._currentRetry,
       $$fullTitle: this.fullTitle(),

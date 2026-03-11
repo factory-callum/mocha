@@ -1,10 +1,10 @@
 "use strict";
 
-var EventEmitter = require("node:events").EventEmitter;
-var PendingError = require("./pending");
-var debug = require("debug")("mocha:runnable");
-var milliseconds = require("ms");
-var utils = require("./utils");
+const EventEmitter = require("node:events").EventEmitter;
+const PendingError = require("./pending");
+const debug = require("debug")("mocha:runnable");
+const milliseconds = require("ms");
+const utils = require("./utils");
 const {
   createInvalidExceptionError,
   createMultipleDoneError,
@@ -15,30 +15,79 @@ const {
  * Save timer references to avoid Sinon interfering (see GH-237).
  * @private
  */
-var Date = global.Date;
-var setTimeout = global.setTimeout;
-var clearTimeout = global.clearTimeout;
-var toString = Object.prototype.toString;
+const Date = global.Date;
+const setTimeout = global.setTimeout;
+const clearTimeout = global.clearTimeout;
+const toString = Object.prototype.toString;
 
-var MAX_TIMEOUT = Math.pow(2, 31) - 1;
+const MAX_TIMEOUT = Math.pow(2, 31) - 1;
+
+/** Interface for a Suite-like parent */
+interface ParentSuite {
+  isPending(): boolean;
+  titlePath(): string[];
+  appendOnlyTest(test: unknown): void;
+  fullTitle(): string;
+  id: string;
+}
+
+/** Interface for a Context-like object */
+interface RunnableContext {
+  runnable?: (r: Runnable) => void;
+  currentTest?: unknown;
+  [key: string]: unknown;
+}
+
+/** Done callback type */
+type DoneCallback = (err?: Error | null) => void;
+
+/** Test function type (sync, async done-callback, or promise-returning) */
+type TestFunction = ((...args: unknown[]) => unknown) & {
+  length: number;
+  call: (thisArg: unknown, ...args: unknown[]) => unknown;
+};
 
 class Runnable extends EventEmitter {
-  // "Additional properties" doc comment added for hosted docs (mochajs.org/api)
+  title: string;
+  fn: TestFunction | undefined;
+  body: string;
+  async: number;
+  sync: boolean;
+  _timeout: number;
+  _slow: number;
+  _retries: number;
+  timedOut!: boolean;
+  _currentRetry!: number;
+  pending!: boolean;
+  state: string | undefined;
+  err: Error | undefined;
+  parent!: ParentSuite;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  _allowedGlobals: string[] | undefined;
+  callback!: DoneCallback;
+  duration: number | undefined;
+  ctx: RunnableContext | undefined;
+  file: string | undefined;
+  allowUncaught: boolean | undefined;
+  asyncOnly: boolean | undefined;
+  speed: string | undefined;
+  type: string | undefined;
+  _trace: Error | undefined;
+  id!: string;
+
   /**
    * Initialize a new `Runnable` with the given `title` and callback `fn`.
    * Additional properties, like `getFullTitle()` and `slow()`, can be viewed in the `Runnable` source.
    *
    * @extends external:EventEmitter
    * @public
-   * @param {String} title
-   * @param {Function} fn
    */
-  constructor(title, fn) {
+  constructor(title: string, fn?: TestFunction) {
     super(title, fn);
     this.title = title;
     this.fn = fn;
     this.body = (fn || "").toString();
-    this.async = fn && fn.length;
+    this.async = fn ? fn.length : 0;
     this.sync = !this.async;
     this._timeout = 2000;
     this._slow = 75;
@@ -55,7 +104,7 @@ class Runnable extends EventEmitter {
   /**
    * Resets the state initially or for a next run.
    */
-  reset() {
+  reset(): void {
     this.timedOut = false;
     this._currentRetry = 0;
     this.pending = false;
@@ -66,41 +115,33 @@ class Runnable extends EventEmitter {
   /**
    * Get current timeout value in msecs.
    *
-   * @private
-   * @returns {number} current timeout threshold value
-   */
-  /**
-   * @summary
    * Set timeout threshold value (msecs).
    *
-   * @description
    * A string argument can use shorthand (e.g., "2s") and will be converted.
-   * The value will be clamped to range [<code>0</code>, <code>2^<sup>31</sup>-1</code>].
+   * The value will be clamped to range [0, 2^31-1].
    * If clamped value matches either range endpoint, timeouts will be disabled.
    *
    * @private
-   * @see {@link https://developer.mozilla.org/en-US/docs/Web/API/WindowOrWorkerGlobalScope/setTimeout#Maximum_delay_value}
-   * @param {number|string} ms - Timeout threshold value.
-   * @returns {Runnable} this
-   * @chainable
    */
-  timeout(ms) {
+  timeout(): number;
+  timeout(ms: number | string): this;
+  timeout(ms?: number | string): number | this {
     if (!arguments.length) {
       return this._timeout;
     }
     if (typeof ms === "string") {
-      ms = milliseconds(ms);
+      ms = milliseconds(ms) as number;
     }
 
     // Clamp to range
-    var range = [0, MAX_TIMEOUT];
-    ms = utils.clamp(ms, range);
+    const range: [number, number] = [0, MAX_TIMEOUT];
+    ms = utils.clamp(ms as number, range);
 
     // see #1652 for reasoning
     if (ms === range[0] || ms === range[1]) {
       this._timeout = 0;
     } else {
-      this._timeout = ms;
+      this._timeout = ms as number;
     }
     debug("timeout %d", this._timeout);
 
@@ -114,18 +155,18 @@ class Runnable extends EventEmitter {
    * Set or get slow `ms`.
    *
    * @private
-   * @param {number|string} ms
-   * @return {Runnable|number} ms or Runnable instance.
    */
-  slow(ms) {
+  slow(): number;
+  slow(ms: number | string): this;
+  slow(ms?: number | string): number | this {
     if (!arguments.length || typeof ms === "undefined") {
       return this._slow;
     }
     if (typeof ms === "string") {
-      ms = milliseconds(ms);
+      ms = milliseconds(ms) as number;
     }
     debug("slow %d", ms);
-    this._slow = ms;
+    this._slow = ms as number;
     return this;
   }
 
@@ -135,7 +176,7 @@ class Runnable extends EventEmitter {
    * @memberof Mocha.Runnable
    * @public
    */
-  skip() {
+  skip(): void {
     this.pending = true;
     throw new PendingError("sync skip; aborting execution");
   }
@@ -145,25 +186,23 @@ class Runnable extends EventEmitter {
    *
    * @private
    */
-  isPending() {
+  isPending(): boolean {
     return this.pending || (this.parent && this.parent.isPending());
   }
 
   /**
    * Return `true` if this Runnable has failed.
-   * @return {boolean}
    * @private
    */
-  isFailed() {
+  isFailed(): boolean {
     return !this.isPending() && this.state === Runnable.constants.STATE_FAILED;
   }
 
   /**
    * Return `true` if this Runnable has passed.
-   * @return {boolean}
    * @private
    */
-  isPassed() {
+  isPassed(): boolean {
     return !this.isPending() && this.state === Runnable.constants.STATE_PASSED;
   }
 
@@ -172,11 +211,13 @@ class Runnable extends EventEmitter {
    *
    * @private
    */
-  retries(n) {
+  retries(): number;
+  retries(n: number): void;
+  retries(n?: number): number | void {
     if (!arguments.length) {
       return this._retries;
     }
-    this._retries = n;
+    this._retries = n!;
   }
 
   /**
@@ -184,11 +225,13 @@ class Runnable extends EventEmitter {
    *
    * @private
    */
-  currentRetry(n) {
+  currentRetry(): number;
+  currentRetry(n: number): void;
+  currentRetry(n?: number): number | void {
     if (!arguments.length) {
       return this._currentRetry;
     }
-    this._currentRetry = n;
+    this._currentRetry = n!;
   }
 
   /**
@@ -197,9 +240,8 @@ class Runnable extends EventEmitter {
    *
    * @memberof Mocha.Runnable
    * @public
-   * @return {string}
    */
-  fullTitle() {
+  fullTitle(): string {
     return this.titlePath().join(" ");
   }
 
@@ -208,9 +250,8 @@ class Runnable extends EventEmitter {
    *
    * @memberof Mocha.Runnable
    * @public
-   * @return {string[]}
    */
-  titlePath() {
+  titlePath(): string[] {
     return this.parent.titlePath().concat([this.title]);
   }
 
@@ -219,7 +260,7 @@ class Runnable extends EventEmitter {
    *
    * @private
    */
-  clearTimeout() {
+  clearTimeout(): void {
     clearTimeout(this.timer);
   }
 
@@ -228,17 +269,16 @@ class Runnable extends EventEmitter {
    *
    * @private
    */
-  resetTimeout() {
-    var self = this;
-    var ms = this.timeout() || MAX_TIMEOUT;
+  resetTimeout(): void {
+    const ms = this.timeout() || MAX_TIMEOUT;
 
     this.clearTimeout();
-    this.timer = setTimeout(function () {
-      if (self.timeout() === 0) {
+    this.timer = setTimeout(() => {
+      if (this.timeout() === 0) {
         return;
       }
-      self.callback(self._timeoutError(ms));
-      self.timedOut = true;
+      this.callback(this._timeoutError(ms));
+      this.timedOut = true;
     }, ms);
   }
 
@@ -246,9 +286,10 @@ class Runnable extends EventEmitter {
    * Set or get a list of whitelisted globals for this test run.
    *
    * @private
-   * @param {string[]} globals
    */
-  globals(globals) {
+  globals(): string[] | undefined;
+  globals(globals: string[]): void;
+  globals(globals?: string[]): string[] | undefined | void {
     if (!arguments.length) {
       return this._allowedGlobals;
     }
@@ -258,15 +299,14 @@ class Runnable extends EventEmitter {
   /**
    * Run the test and invoke `fn(err)`.
    *
-   * @param {Function} fn
    * @private
    */
-  run(fn) {
-    var self = this;
-    var start = new Date();
-    var ctx = this.ctx;
-    var finished;
-    var errorWasHandled = false;
+  run(fn: DoneCallback): void {
+    const self = this;
+    const start = new Date();
+    const ctx = this.ctx;
+    let finished: boolean;
+    let errorWasHandled = false;
 
     if (this.isPending()) return fn();
 
@@ -276,7 +316,7 @@ class Runnable extends EventEmitter {
     }
 
     // called multiple times
-    function multiple(err) {
+    function multiple(err: Error | undefined): void {
       if (errorWasHandled) {
         return;
       }
@@ -285,18 +325,18 @@ class Runnable extends EventEmitter {
     }
 
     // finished
-    function done(err) {
-      var ms = self.timeout();
+    function done(err?: Error | null): void {
+      const ms = self.timeout();
       if (self.timedOut) {
         return;
       }
 
       if (finished) {
-        return multiple(err);
+        return multiple(err as Error | undefined);
       }
 
       self.clearTimeout();
-      self.duration = new Date() - start;
+      self.duration = (new Date() as unknown as number) - (start as unknown as number);
       finished = true;
       if (!err && self.duration > ms && ms > 0) {
         err = self._timeoutError(ms);
@@ -321,7 +361,7 @@ class Runnable extends EventEmitter {
       this.resetTimeout();
 
       // allows skip() to be used in an explicit async context
-      this.skip = function asyncSkip() {
+      this.skip = function asyncSkip(): void {
         this.pending = true;
         done();
         // halt execution, the uncaught handler will ignore the failure.
@@ -329,13 +369,13 @@ class Runnable extends EventEmitter {
       };
 
       try {
-        callFnAsync(this.fn);
-      } catch (err) {
+        callFnAsync(this.fn!);
+      } catch (err: unknown) {
         // handles async runnables which actually run synchronously
         errorWasHandled = true;
         if (err instanceof PendingError) {
           return; // done() is already called in this.skip()
-        } else if (this.allowUncaught) {
+        } else if (self.allowUncaught) {
           throw err;
         }
         done(Runnable.toValueOrError(err));
@@ -345,31 +385,31 @@ class Runnable extends EventEmitter {
 
     // sync or promise-returning
     try {
-      callFn(this.fn);
-    } catch (err) {
+      callFn(this.fn!);
+    } catch (err: unknown) {
       errorWasHandled = true;
       if (err instanceof PendingError) {
         return done();
-      } else if (this.allowUncaught) {
+      } else if (self.allowUncaught) {
         throw err;
       }
       done(Runnable.toValueOrError(err));
     }
 
-    function callFn(fn) {
-      var result = fn.call(ctx);
+    function callFn(fnArg: TestFunction): void {
+      const result = fnArg.call(ctx) as Record<string, unknown> | undefined;
       if (result && typeof result.then === "function") {
         self.resetTimeout();
-        result.then(
+        (result as { then: (onFulfilled: () => null, onRejected: (reason: unknown) => void) => void }).then(
           function () {
             done();
             // Return null so libraries like bluebird do not warn about
             // subsequently constructed Promises.
             return null;
           },
-          function (reason) {
+          function (reason: unknown) {
             done(
-              reason || new Error("Promise rejected with no or falsy reason"),
+              (reason as Error) || new Error("Promise rejected with no or falsy reason"),
             );
           },
         );
@@ -386,10 +426,11 @@ class Runnable extends EventEmitter {
       }
     }
 
-    function callFnAsync(fn) {
-      var result = fn.call(ctx, function (err) {
+    function callFnAsync(fnArg: TestFunction): void {
+      const wrapper: { result: unknown } = { result: undefined };
+      wrapper.result = fnArg.call(ctx, function (err: unknown) {
         if (err instanceof Error || toString.call(err) === "[object Error]") {
-          return done(err);
+          return done(err as Error);
         }
         if (err) {
           if (Object.prototype.toString.call(err) === "[object Object]") {
@@ -401,7 +442,7 @@ class Runnable extends EventEmitter {
           }
           return done(new Error("done() invoked with non-Error: " + err));
         }
-        if (result && utils.isPromise(result)) {
+        if (wrapper.result && utils.isPromise(wrapper.result)) {
           return done(
             new Error(
               "Resolution method is overspecified. Specify a callback *or* return a Promise; not both.",
@@ -417,11 +458,11 @@ class Runnable extends EventEmitter {
   /**
    * Instantiates a "timeout" error
    *
-   * @param {number} ms - Timeout (in milliseconds)
-   * @returns {Error} a "timeout" error
+   * @param ms - Timeout (in milliseconds)
+   * @returns a "timeout" error
    * @private
    */
-  _timeoutError(ms) {
+  _timeoutError(ms: number): Error {
     let msg = `Timeout of ${ms}ms exceeded. For async tests and hooks, ensure "done()" is called; if returning a Promise, ensure it resolves.`;
     if (this.file) {
       msg += " (" + this.file + ")";
@@ -431,7 +472,7 @@ class Runnable extends EventEmitter {
 
   static constants = utils.defineConstants(
     /**
-     * {@link Runnable}-related Runnable.constants.
+     * {@link Runnable}-related constants.
      * @public
      * @memberof Runnable
      * @readonly
@@ -457,13 +498,11 @@ class Runnable extends EventEmitter {
 
   /**
    * Given `value`, return identity if truthy, otherwise create an "invalid exception" error and return that.
-   * @param {*} [value] - Value to return, if present
-   * @returns {*|Error} `value`, otherwise an `Error`
    * @private
    */
-  static toValueOrError(value) {
+  static toValueOrError(value: unknown): Error {
     return (
-      value ||
+      (value as Error) ||
       createInvalidExceptionError(
         "Runnable failed with falsy or undefined exception. Please throw an Error instead.",
         value,

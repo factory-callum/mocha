@@ -1,16 +1,12 @@
 "use strict";
 
 /**
- * @typedef {import('./test.js')} Test
- */
-
-/**
  * Module dependencies.
  * @private
  */
 const { EventEmitter } = require("node:events");
 const Hook = require("./hook");
-var {
+const {
   assignNewMochaID,
   clamp,
   constants: utilsConstants,
@@ -23,6 +19,40 @@ const milliseconds = require("ms");
 const errors = require("./errors");
 
 const { MOCHA_ID_PROP_NAME } = utilsConstants;
+
+/** Interface for a Test-like object */
+interface TestLike {
+  parent: unknown;
+  timeout(ms: number): unknown;
+  retries(n: number): unknown;
+  slow(ms: number): unknown;
+  ctx: unknown;
+  fn?: unknown;
+  reset(): void;
+}
+
+/** Interface for a Hook-like object */
+interface HookLike {
+  parent: unknown;
+  timeout(ms: number): unknown;
+  retries(n: number): unknown;
+  slow(ms: number): unknown;
+  ctx: unknown;
+  file: string | undefined;
+  fn?: unknown;
+  reset(): void;
+}
+
+/** Interface for serialized Suite data suitable for IPC */
+interface SerializedSuite {
+  _bail: boolean;
+  $$fullTitle: string;
+  $$isPending: boolean;
+  root: boolean;
+  title: string;
+  parent: { [key: string]: unknown } | null;
+  [key: string]: unknown;
+}
 
 class Suite extends EventEmitter {
   static constants = defineConstants(
@@ -101,16 +131,34 @@ class Suite extends EventEmitter {
    * Create a new `Suite` with the given `title` and parent `Suite`.
    *
    * @public
-   * @param {Suite} parent - Parent suite (required!)
-   * @param {string} title - Title
-   * @return {Suite}
    */
-  static create(parent, title) {
-    var suite = new Suite(title, parent.ctx);
+  static create(parent: Suite, title: string): Suite {
+    const suite = new Suite(title, parent.ctx);
     suite.parent = parent;
     parent.addSuite(suite);
     return suite;
   }
+
+  title: string;
+  ctx: unknown;
+  suites: Suite[];
+  tests: TestLike[];
+  root: boolean;
+  pending: boolean;
+  _retries: number;
+  _beforeEach: HookLike[];
+  _beforeAll: HookLike[];
+  _afterEach: HookLike[];
+  _afterAll: HookLike[];
+  _timeout: number;
+  _slow: number;
+  _bail: boolean;
+  _onlyTests: TestLike[];
+  _onlySuites: Suite[];
+  delayed!: boolean;
+  parent!: Suite;
+  file: string | undefined;
+  id!: string;
 
   /**
    * Constructs a new `Suite` instance with the given `title`, `ctx`, and `isRoot`.
@@ -118,11 +166,8 @@ class Suite extends EventEmitter {
    * @public
    * @extends EventEmitter
    * @see {@link https://nodejs.org/api/events.html#events_class_eventemitter|EventEmitter}
-   * @param {string} title - Suite title.
-   * @param {Context} parentContext - Parent context instance.
-   * @param {boolean} [isRoot=false] - Whether this is the root suite.
    */
-  constructor(title, parentContext, isRoot) {
+  constructor(title: string, parentContext?: unknown, isRoot?: boolean) {
     if (!isString(title)) {
       throw errors.createInvalidArgumentTypeError(
         'Suite argument "title" must be a string. Received type "' +
@@ -134,9 +179,9 @@ class Suite extends EventEmitter {
     }
     super();
     this.title = title;
-    function Context() {}
+    function Context(this: unknown): void {}
     Context.prototype = parentContext;
-    this.ctx = new Context();
+    this.ctx = new (Context as unknown as new () => unknown)();
     this.suites = [];
     this.tests = [];
     this.root = isRoot === true;
@@ -165,9 +210,9 @@ class Suite extends EventEmitter {
   /**
    * Resets the state initially or for a next run.
    */
-  reset() {
+  reset(): void {
     this.delayed = false;
-    function doReset(thingToReset) {
+    function doReset(thingToReset: { reset(): void }): void {
       thingToReset.reset();
     }
     this.suites.forEach(doReset);
@@ -182,10 +227,9 @@ class Suite extends EventEmitter {
    * Return a clone of this `Suite`.
    *
    * @private
-   * @return {Suite}
    */
-  clone() {
-    var suite = new Suite(this.title);
+  clone(): Suite {
+    const suite = new Suite(this.title);
     debug("clone");
     suite.ctx = this.ctx;
     suite.root = this.root;
@@ -200,25 +244,24 @@ class Suite extends EventEmitter {
    * Set or get timeout `ms` or short-hand such as "2s".
    *
    * @private
-   * @todo Do not attempt to set value if `ms` is undefined
-   * @param {number|string} ms
-   * @return {Suite|number} for chaining
    */
-  timeout(ms) {
+  timeout(): number;
+  timeout(ms: number | string): this;
+  timeout(ms?: number | string): number | this {
     if (!arguments.length) {
       return this._timeout;
     }
     if (typeof ms === "string") {
-      ms = milliseconds(ms);
+      ms = milliseconds(ms) as number;
     }
 
     // Clamp to range
-    var INT_MAX = Math.pow(2, 31) - 1;
-    var range = [0, INT_MAX];
-    ms = clamp(ms, range);
+    const INT_MAX = Math.pow(2, 31) - 1;
+    const range: [number, number] = [0, INT_MAX];
+    ms = clamp(ms as number, range);
 
     debug("timeout %d", ms);
-    this._timeout = parseInt(ms, 10);
+    this._timeout = parseInt(ms as unknown as string, 10);
 
     // Allow overriding inner/nested suites
     // See and test-cases with chain-called timeout argument.
@@ -236,15 +279,15 @@ class Suite extends EventEmitter {
    * Set or get number of times to retry a failed test.
    *
    * @private
-   * @param {number|string} n
-   * @return {Suite|number} for chaining
    */
-  retries(n) {
+  retries(): number;
+  retries(n: number | string): this;
+  retries(n?: number | string): number | this {
     if (!arguments.length) {
       return this._retries;
     }
     debug("retries %d", n);
-    this._retries = parseInt(n, 10) || 0;
+    this._retries = parseInt(n as unknown as string, 10) || 0;
     return this;
   }
 
@@ -252,18 +295,18 @@ class Suite extends EventEmitter {
    * Set or get slow `ms` or short-hand such as "2s".
    *
    * @private
-   * @param {number|string} ms
-   * @return {Suite|number} for chaining
    */
-  slow(ms) {
+  slow(): number;
+  slow(ms: number | string): this;
+  slow(ms?: number | string): number | this {
     if (!arguments.length) {
       return this._slow;
     }
     if (typeof ms === "string") {
-      ms = milliseconds(ms);
+      ms = milliseconds(ms) as number;
     }
     debug("slow %d", ms);
-    this._slow = ms;
+    this._slow = ms as number;
     return this;
   }
 
@@ -271,15 +314,15 @@ class Suite extends EventEmitter {
    * Set or get whether to bail after first error.
    *
    * @private
-   * @param {boolean} bail
-   * @return {Suite|number} for chaining
    */
-  bail(bail) {
+  bail(): boolean;
+  bail(bail: boolean): this;
+  bail(bail?: boolean): boolean | this {
     if (!arguments.length) {
       return this._bail;
     }
     debug("bail %s", bail);
-    this._bail = bail;
+    this._bail = bail!;
     return this;
   }
 
@@ -288,19 +331,16 @@ class Suite extends EventEmitter {
    *
    * @private
    */
-  isPending() {
+  isPending(): boolean {
     return this.pending || (this.parent && this.parent.isPending());
   }
 
   /**
    * Generic hook-creator.
    * @private
-   * @param {string} title - Title of hook
-   * @param {Function} fn - Hook callback
-   * @returns {Hook} A new hook
    */
-  _createHook(title, fn) {
-    var hook = new Hook(title, fn);
+  _createHook(title: string, fn?: (...args: unknown[]) => unknown): HookLike {
+    const hook = new Hook(title, fn);
     hook.parent = this;
     hook.timeout(this.timeout());
     hook.retries(this.retries());
@@ -314,11 +354,8 @@ class Suite extends EventEmitter {
    * Run `fn(test[, done])` before running tests.
    *
    * @private
-   * @param {string} title
-   * @param {Function} fn
-   * @return {Suite} for chaining
    */
-  beforeAll(title, fn) {
+  beforeAll(title: string | ((...args: unknown[]) => unknown), fn?: (...args: unknown[]) => unknown): HookLike | this {
     if (this.isPending()) {
       return this;
     }
@@ -328,7 +365,7 @@ class Suite extends EventEmitter {
     }
     title = '"before all" hook' + (title ? ": " + title : "");
 
-    var hook = this._createHook(title, fn);
+    const hook = this._createHook(title, fn);
     this._beforeAll.push(hook);
     this.emit(Suite.constants.EVENT_SUITE_ADD_HOOK_BEFORE_ALL, hook);
     return hook;
@@ -338,11 +375,8 @@ class Suite extends EventEmitter {
    * Run `fn(test[, done])` after running tests.
    *
    * @private
-   * @param {string} title
-   * @param {Function} fn
-   * @return {Suite} for chaining
    */
-  afterAll(title, fn) {
+  afterAll(title: string | ((...args: unknown[]) => unknown), fn?: (...args: unknown[]) => unknown): HookLike | this {
     if (this.isPending()) {
       return this;
     }
@@ -352,7 +386,7 @@ class Suite extends EventEmitter {
     }
     title = '"after all" hook' + (title ? ": " + title : "");
 
-    var hook = this._createHook(title, fn);
+    const hook = this._createHook(title, fn);
     this._afterAll.push(hook);
     this.emit(Suite.constants.EVENT_SUITE_ADD_HOOK_AFTER_ALL, hook);
     return hook;
@@ -362,11 +396,8 @@ class Suite extends EventEmitter {
    * Run `fn(test[, done])` before each test case.
    *
    * @private
-   * @param {string} title
-   * @param {Function} fn
-   * @return {Suite} for chaining
    */
-  beforeEach(title, fn) {
+  beforeEach(title: string | ((...args: unknown[]) => unknown), fn?: (...args: unknown[]) => unknown): HookLike | this {
     if (this.isPending()) {
       return this;
     }
@@ -376,7 +407,7 @@ class Suite extends EventEmitter {
     }
     title = '"before each" hook' + (title ? ": " + title : "");
 
-    var hook = this._createHook(title, fn);
+    const hook = this._createHook(title, fn);
     this._beforeEach.push(hook);
     this.emit(Suite.constants.EVENT_SUITE_ADD_HOOK_BEFORE_EACH, hook);
     return hook;
@@ -386,11 +417,8 @@ class Suite extends EventEmitter {
    * Run `fn(test[, done])` after each test case.
    *
    * @private
-   * @param {string} title
-   * @param {Function} fn
-   * @return {Suite} for chaining
    */
-  afterEach(title, fn) {
+  afterEach(title: string | ((...args: unknown[]) => unknown), fn?: (...args: unknown[]) => unknown): HookLike | this {
     if (this.isPending()) {
       return this;
     }
@@ -400,7 +428,7 @@ class Suite extends EventEmitter {
     }
     title = '"after each" hook' + (title ? ": " + title : "");
 
-    var hook = this._createHook(title, fn);
+    const hook = this._createHook(title, fn);
     this._afterEach.push(hook);
     this.emit(Suite.constants.EVENT_SUITE_ADD_HOOK_AFTER_EACH, hook);
     return hook;
@@ -410,10 +438,8 @@ class Suite extends EventEmitter {
    * Add a test `suite`.
    *
    * @private
-   * @param {Suite} suite
-   * @return {Suite} for chaining
    */
-  addSuite(suite) {
+  addSuite(suite: Suite): this {
     suite.parent = this;
     suite.root = false;
     suite.timeout(this.timeout());
@@ -429,10 +455,8 @@ class Suite extends EventEmitter {
    * Add a `test` to this suite.
    *
    * @private
-   * @param {Test} test
-   * @return {Suite} for chaining
    */
-  addTest(test) {
+  addTest(test: TestLike): this {
     test.parent = this;
     test.timeout(this.timeout());
     test.retries(this.retries());
@@ -449,9 +473,8 @@ class Suite extends EventEmitter {
    *
    * @memberof Suite
    * @public
-   * @return {string}
    */
-  fullTitle() {
+  fullTitle(): string {
     return this.titlePath().join(" ");
   }
 
@@ -461,10 +484,9 @@ class Suite extends EventEmitter {
    *
    * @memberof Suite
    * @public
-   * @return {string[]}
    */
-  titlePath() {
-    var result = [];
+  titlePath(): string[] {
+    let result: string[] = [];
     if (this.parent) {
       result = result.concat(this.parent.titlePath());
     }
@@ -479,11 +501,10 @@ class Suite extends EventEmitter {
    *
    * @memberof Suite
    * @public
-   * @return {number}
    */
-  total() {
+  total(): number {
     return (
-      this.suites.reduce(function (sum, suite) {
+      this.suites.reduce(function (sum: number, suite: Suite) {
         return sum + suite.total();
       }, 0) + this.tests.length
     );
@@ -494,12 +515,10 @@ class Suite extends EventEmitter {
    * function in the format `fn(test)`.
    *
    * @private
-   * @param {Function} fn
-   * @return {Suite}
    */
-  eachTest(fn) {
+  eachTest(fn: (test: TestLike) => void): this {
     this.tests.forEach(fn);
-    this.suites.forEach(function (suite) {
+    this.suites.forEach(function (suite: Suite) {
       suite.eachTest(fn);
     });
     return this;
@@ -509,7 +528,7 @@ class Suite extends EventEmitter {
    * This will run the root suite if we happen to be running in delayed mode.
    * @private
    */
-  run() {
+  run(): void {
     if (this.root) {
       this.emit(Suite.constants.EVENT_ROOT_SUITE_RUN);
     }
@@ -519,13 +538,12 @@ class Suite extends EventEmitter {
    * Determines whether a suite has an `only` test or suite as a descendant.
    *
    * @private
-   * @returns {Boolean}
    */
-  hasOnly() {
+  hasOnly(): boolean {
     return (
       this._onlyTests.length > 0 ||
       this._onlySuites.length > 0 ||
-      this.suites.some(function (suite) {
+      this.suites.some(function (suite: Suite) {
         return suite.hasOnly();
       })
     );
@@ -535,9 +553,8 @@ class Suite extends EventEmitter {
    * Filter suites based on `isOnly` logic.
    *
    * @private
-   * @returns {Boolean}
    */
-  filterOnly() {
+  filterOnly(): boolean {
     if (this._onlyTests.length) {
       // If the suite contains `only` tests, run those and ignore any nested suites.
       this.tests = this._onlyTests;
@@ -545,7 +562,7 @@ class Suite extends EventEmitter {
     } else {
       // Otherwise, do not run any of the tests in this suite.
       this.tests = [];
-      this._onlySuites.forEach(function (onlySuite) {
+      this._onlySuites.forEach(function (onlySuite: Suite) {
         // If there are other `only` tests/suites nested in the current `only` suite, then filter that `only` suite.
         // Otherwise, all of the tests on this `only` suite should be run, so don't filter it.
         if (onlySuite.hasOnly()) {
@@ -553,8 +570,8 @@ class Suite extends EventEmitter {
         }
       });
       // Run the `only` suites, as well as any other suites that have `only` tests/suites as descendants.
-      var onlySuites = this._onlySuites;
-      this.suites = this.suites.filter(function (childSuite) {
+      const onlySuites = this._onlySuites;
+      this.suites = this.suites.filter(function (childSuite: Suite) {
         return onlySuites.indexOf(childSuite) !== -1 || childSuite.filterOnly();
       });
     }
@@ -566,9 +583,8 @@ class Suite extends EventEmitter {
    * Adds a suite to the list of subsuites marked `only`.
    *
    * @private
-   * @param {Suite} suite
    */
-  appendOnlySuite(suite) {
+  appendOnlySuite(suite: Suite): void {
     this._onlySuites.push(suite);
   }
 
@@ -577,17 +593,18 @@ class Suite extends EventEmitter {
    *
    * @private
    */
-  markOnly() {
-    this.parent && this.parent.appendOnlySuite(this);
+  markOnly(): void {
+    if (this.parent) {
+      this.parent.appendOnlySuite(this);
+    }
   }
 
   /**
    * Adds a test to the list of tests marked `only`.
    *
    * @private
-   * @param {Test} test
    */
-  appendOnlyTest(test) {
+  appendOnlyTest(test: TestLike): void {
     this._onlyTests.push(test);
   }
 
@@ -595,15 +612,15 @@ class Suite extends EventEmitter {
    * Returns the array of hooks by hook name; see `HOOK_TYPE_*` constants.
    * @private
    */
-  getHooks(name) {
-    return this["_" + name];
+  getHooks(name: string): HookLike[] {
+    return (this as unknown as Record<string, HookLike[]>)["_" + name];
   }
 
   /**
    * cleans all references from this suite and all child suites.
    */
-  dispose() {
-    this.suites.forEach(function (suite) {
+  dispose(): void {
+    this.suites.forEach(function (suite: Suite) {
       suite.dispose();
     });
     this.cleanReferences();
@@ -619,9 +636,9 @@ class Suite extends EventEmitter {
    *
    * @private
    */
-  cleanReferences() {
-    function cleanArrReferences(arr) {
-      for (var i = 0; i < arr.length; i++) {
+  cleanReferences(): void {
+    function cleanArrReferences(arr: { fn?: unknown }[]): void {
+      for (let i = 0; i < arr.length; i++) {
         delete arr[i].fn;
       }
     }
@@ -642,7 +659,7 @@ class Suite extends EventEmitter {
       cleanArrReferences(this._afterEach);
     }
 
-    for (var i = 0; i < this.tests.length; i++) {
+    for (let i = 0; i < this.tests.length; i++) {
       delete this.tests[i].fn;
     }
   }
@@ -651,9 +668,8 @@ class Suite extends EventEmitter {
    * Returns an object suitable for IPC.
    * Functions are represented by keys beginning with `$$`.
    * @private
-   * @returns {Object}
    */
-  serialize() {
+  serialize(): SerializedSuite {
     return {
       _bail: this._bail,
       $$fullTitle: this.fullTitle(),
