@@ -1,0 +1,39 @@
+{
+  "milestone": "reporters-and-interfaces",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test-node:unit && npm run test-node:reporters && npm run test-node:interfaces",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:code",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Documented the browser-only TypeScript DOM typing pattern (`/// <reference lib=\"dom\" />`) in .factory/library/architecture.md.",
+      "sourceFeature": "reporters-batch-2"
+    }
+  ],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [],
+  "previousRound": null
+}

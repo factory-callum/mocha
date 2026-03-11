@@ -37,6 +37,10 @@ Architectural decisions, patterns discovered, and conventions.
 - No compilation step currently (tsconfig is noEmit check-only)
 - After migration: tsc compiles .ts -> .js in-place, then Rollup bundles for browser
 
+## TypeScript Browser Typing Pattern
+- Global TypeScript config does not include DOM libs.
+- Browser-only source files should use a per-file DOM lib reference when needed, e.g. `/// <reference lib="dom" />` (used by `lib/reporters/html.ts`).
+
 ## Testing
 - Mocha tests itself (dogfooding)
 - `unexpected` assertion library (NOT chai)
