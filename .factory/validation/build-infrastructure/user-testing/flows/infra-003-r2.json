@@ -1,0 +1,34 @@
+{
+  "assertionResults": [
+    {
+      "id": "VAL-INFRA-003",
+      "title": "Git ignores compiled output",
+      "status": "pass",
+      "evidence": {
+        "gitignoreExclusions": {
+          "command": "grep -n \"^lib/\\*\\*/\\*\\.js$\\|^lib/\\*\\*/\\*\\.js\\.map$\\|^lib/\\*\\*/\\*\\.d\\.ts$\" /home/ec2-user/workspace/mocha/.gitignore",
+          "exitCode": 0,
+          "output": "9:lib/**/*.js\n10:lib/**/*.js.map\n11:lib/**/*.d.ts"
+        },
+        "compile": {
+          "command": "npm --prefix /home/ec2-user/workspace/mocha run compile",
+          "exitCode": 0,
+          "output": "> mocha@12.0.0-beta.10 compile\n> tsc"
+        },
+        "postCompileGitStatus": {
+          "command": "git -C /home/ec2-user/workspace/mocha status --porcelain",
+          "exitCode": 0,
+          "output": " M .factory/library/user-testing.md\n?? .factory/validation/build-infrastructure/user-testing/",
+          "observation": "No untracked compiled artifacts under lib/ were reported after compilation."
+        }
+      },
+      "issues": null
+    }
+  ],
+  "toolsUsed": [
+    "Execute"
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "VAL-INFRA-003 passed: .gitignore explicitly contains lib/**/*.js, lib/**/*.js.map, and lib/**/*.d.ts exclusions, and post-compile git status showed no untracked compiled lib artifacts."
+}

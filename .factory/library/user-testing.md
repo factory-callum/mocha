@@ -57,3 +57,13 @@ npm pack --dry-run   # Verify package contents
 - Integration tests spawn `bin/mocha` as child processes - resilient to source restructuring
 - `rewiremock` used for module mocking in node-unit tests - paths must match compiled output
 - The project type is `"commonjs"` in package.json; ESM uses `.mjs` extension
+- On clean checkouts, run `npm run compile` before `npm run lint:code`; eslint-plugin-n resolves runtime `require()` paths that point to compiled `lib/*.js` outputs.
+
+## Flow Validator Guidance: CLI/Terminal Surface
+
+- Use only your assigned namespace for temporary files (example: `/tmp/mocha-user-testing-<namespace>`).
+- Do not modify source files or commit history; validation is command-driven and read-only against project sources.
+- Avoid shared mutable setup outside your namespace. If you must emit build artifacts, do it only in the repository `lib/` output path expected by the project.
+- For this milestone, no real user accounts are required. Treat assigned `Account` values as isolation labels only.
+- Prefer deterministic commands from `.factory/services.yaml` (`typecheck`, `compile`, `lint`, `test-unit`, `build`) and record exact outputs/exit codes.
+- Known environment caveat: full integration suite has pre-existing Node 25 failures; for build-infrastructure validation, prioritize the assertions explicitly mapped for this milestone.

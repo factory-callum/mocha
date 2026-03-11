@@ -1,0 +1,115 @@
+{
+  "groupId": "infra-runtime",
+  "milestone": "build-infrastructure",
+  "testedAt": "2026-03-11T03:07:37Z",
+  "credentials": {
+    "account": "infra-validator-a",
+    "namespace": "infra-a"
+  },
+  "toolsUsed": ["Execute", "Read", "LS"],
+  "assertionsTested": [
+    "VAL-INFRA-001",
+    "VAL-INFRA-004",
+    "VAL-INFRA-006",
+    "VAL-INFRA-007",
+    "VAL-INFRA-008"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-INFRA-001",
+      "status": "pass",
+      "observation": "`npx tsc --noEmit` exited 0 with no TypeScript errors; tsconfig reports strict=true."
+    },
+    {
+      "id": "VAL-INFRA-004",
+      "status": "pass",
+      "observation": "`npm run lint:code` exited 0 after compile and produced no lint warnings/errors."
+    },
+    {
+      "id": "VAL-INFRA-006",
+      "status": "pass",
+      "observation": "`npm run test-node:unit` exited 0 with 1107 passing and 3 pending."
+    },
+    {
+      "id": "VAL-INFRA-007",
+      "status": "pass",
+      "observation": "`npm run build` exited 0 and created `mocha.js` bundle (size 653715 bytes)."
+    },
+    {
+      "id": "VAL-INFRA-008",
+      "status": "pass",
+      "observation": "`npm run compile` exits 0; script wiring confirms build/prepublishOnly/test-node:integration/test-browser all include compile prerequisite (directly or via build)."
+    }
+  ],
+  "passedAssertions": [
+    "VAL-INFRA-001",
+    "VAL-INFRA-004",
+    "VAL-INFRA-006",
+    "VAL-INFRA-007",
+    "VAL-INFRA-008"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "commandsRun": [
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npx tsc --noEmit",
+      "exitCode": 0,
+      "observation": "Type-check completed successfully with no diagnostics."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && node -e \"const c=require('./tsconfig.json').compilerOptions; console.log('strict='+c.strict);\"",
+      "exitCode": 0,
+      "observation": "Output: strict=true."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run lint:code",
+      "exitCode": 1,
+      "observation": "Initial lint run failed with n/no-missing-require for pending/context/hook compiled JS modules."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run compile",
+      "exitCode": 0,
+      "observation": "TypeScript compile script ran successfully (tsc)."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run lint:code",
+      "exitCode": 0,
+      "observation": "Lint completed successfully with no warnings/errors."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run test-node:unit",
+      "exitCode": 0,
+      "observation": "Unit tests passed: 1107 passing, 3 pending."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run build",
+      "exitCode": 0,
+      "observation": "Build succeeded; rollup generated ./mocha.js."
+    },
+    {
+      "command": "ls -la /home/ec2-user/workspace/mocha/mocha.js",
+      "exitCode": 0,
+      "observation": "mocha.js exists with non-zero size (653715 bytes)."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && node -e \"const s=require('./package.json').scripts; const rows=['compile','build','prepublishOnly','test-node:integration','test-browser'].map(k=>k+': '+s[k]); console.log(rows.join('\\n'));\"",
+      "exitCode": 0,
+      "observation": "Printed script definitions for compile/build/prepublishOnly/test-node:integration/test-browser."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && node -e \"const s=require('./package.json').scripts; const hasCompile=(name,seen=new Set())=>{if(seen.has(name))return false; seen.add(name); const cmd=s[name]||''; if(/\\bnpm run (?:-s )?compile\\b|\\btsc\\b/.test(cmd) && name==='compile') return true; if(/\\bnpm run (?:-s )?compile\\b/.test(cmd)) return true; const refs=[...cmd.matchAll(/\\b(?:npm run|run-s|run-p)\\s+([^&|]+)/g)].flatMap(m=>m[1].trim().split(/\\s+/)); for(const r of refs){ if(s[r] && hasCompile(r,seen)) return true; } return false; }; ['build','prepublishOnly','test-node:integration','test-browser'].forEach(k=>console.log(k+': '+(hasCompile(k)?'includes compile prerequisite':'missing compile prerequisite')));\"",
+      "exitCode": 0,
+      "observation": "All checked workflows reported includes compile prerequisite."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "On a clean state before compilation, `npm run lint:code` failed due to missing compiled JS modules required by eslint-plugin-n resolution.",
+      "resolved": true,
+      "resolution": "Ran `npm run compile` and re-ran lint successfully.",
+      "affectedAssertions": ["VAL-INFRA-004"]
+    }
+  ],
+  "blockers": [],
+  "summary": "Validated 5 assigned infrastructure assertions through CLI commands. All 5 passed after running compile in the expected workflow order."
+}

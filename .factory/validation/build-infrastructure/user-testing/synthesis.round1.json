@@ -1,0 +1,42 @@
+{
+  "milestone": "build-infrastructure",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 10,
+    "passed": 9,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-CROSS-006",
+    "VAL-INFRA-001",
+    "VAL-INFRA-002",
+    "VAL-INFRA-004",
+    "VAL-INFRA-005",
+    "VAL-INFRA-006",
+    "VAL-INFRA-007",
+    "VAL-INFRA-008",
+    "VAL-INFRA-009"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-INFRA-003",
+      "reason": ".gitignore is missing an explicit lib/**/*.d.ts ignore rule required by the validation contract assertion wording."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added Flow Validator Guidance section for CLI/terminal validation isolation and command boundaries.",
+      "source": "setup"
+    },
+    {
+      "target": "user-testing.md",
+      "description": "Documented compile-before-lint sequencing discovered during flow execution on clean states.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

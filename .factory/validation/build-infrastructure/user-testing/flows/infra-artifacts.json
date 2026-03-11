@@ -1,0 +1,117 @@
+{
+  "groupId": "infra-artifacts",
+  "milestone": "build-infrastructure",
+  "testedAt": "2026-03-11T03:10:54Z",
+  "credentials": {
+    "account": "infra-validator-b",
+    "namespace": "infra-b"
+  },
+  "assertionsTested": [
+    "VAL-INFRA-002",
+    "VAL-INFRA-003",
+    "VAL-INFRA-005",
+    "VAL-INFRA-009",
+    "VAL-CROSS-006"
+  ],
+  "passedAssertions": [
+    "VAL-INFRA-002",
+    "VAL-INFRA-005",
+    "VAL-INFRA-009",
+    "VAL-CROSS-006"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-INFRA-003",
+      "reason": ".gitignore includes lib/**/*.js and lib/**/*.js.map, but does not include a lib/**/*.d.ts ignore rule required by the assertion contract."
+    }
+  ],
+  "blockedAssertions": [],
+  "assertionResults": [
+    {
+      "id": "VAL-INFRA-002",
+      "status": "pass",
+      "observation": "npx tsc -p tsconfig.json exited 0; tsconfig noEmit is unset (emit enabled); 3 lib/*.ts files found and all 3 have matching .js outputs; compiled files show CommonJS markers (exports/require)."
+    },
+    {
+      "id": "VAL-INFRA-003",
+      "status": "fail",
+      "observation": "After compile, git status showed no compiled lib artifacts as untracked, but .gitignore lacks explicit lib/**/*.d.ts exclusion requested by the contract."
+    },
+    {
+      "id": "VAL-INFRA-005",
+      "status": "pass",
+      "observation": "lib/pending.ts, lib/context.ts, and lib/hook.ts all exist and contain TypeScript annotations (typed params/returns/interfaces)."
+    },
+    {
+      "id": "VAL-INFRA-009",
+      "status": "pass",
+      "observation": "package.json browser field has 9 .js entries total: 8 lib/*.js entries mapped to false plus ./index.js mapped to ./browser-entry.js; all 8 lib paths exist after compile."
+    },
+    {
+      "id": "VAL-CROSS-006",
+      "status": "pass",
+      "observation": "npx tsc --listFiles exited 0 and listed 0 TypeScript files under /home/ec2-user/workspace/mocha/test/."
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "mkdir -p /tmp/mocha-user-testing-infra-b",
+      "exitCode": 0,
+      "observation": "Created assigned namespace temp directory."
+    },
+    {
+      "command": "node script: run npx tsc -p /home/ec2-user/workspace/mocha/tsconfig.json; inspect tsconfig module/noEmit; verify lib .ts/.js pairing",
+      "exitCode": 0,
+      "observation": "compile_exit=0; tsconfig_module=Node16; tsconfig_noEmit=<unset>; lib_ts_files=3; missing_js_pairs=0."
+    },
+    {
+      "command": "node script: inspect lib/pending.js, lib/context.js, lib/hook.js for CommonJS markers",
+      "exitCode": 0,
+      "observation": "All three files had commonjs_markers=true with exports/require in file headers."
+    },
+    {
+      "command": "node script: read .gitignore and print lib compiled-artifact ignore rules",
+      "exitCode": 0,
+      "observation": "Found rules: lib/**/*.js and lib/**/*.js.map; no lib/**/*.d.ts rule found."
+    },
+    {
+      "command": "node script: run npx tsc -p /home/ec2-user/workspace/mocha/tsconfig.json then git -C /home/ec2-user/workspace/mocha status --porcelain",
+      "exitCode": 0,
+      "observation": "compile_exit=0; git_status_lines=2 (only .factory paths); compiled_artifact_status_entries=0."
+    },
+    {
+      "command": "node script: inspect lib/pending.ts lib/context.ts lib/hook.ts for typed signatures",
+      "exitCode": 0,
+      "observation": "All files exist; context.ts and hook.ts include interfaces and typed returns; pending.ts includes typed constructor parameter."
+    },
+    {
+      "command": "node script: run npx tsc -p /home/ec2-user/workspace/mocha/tsconfig.json and verify package.json browser .js path existence",
+      "exitCode": 0,
+      "observation": "compile_exit=0; browser_js_entries=9; missing_paths=0; non_false_mappings=1 (expected ./index.js -> ./browser-entry.js)."
+    },
+    {
+      "command": "node script: run npx tsc -p /home/ec2-user/workspace/mocha/tsconfig.json --listFiles and filter /test/*.ts",
+      "exitCode": 0,
+      "observation": "tsc_listFiles_exit=0; project_test_ts_files_listed=0."
+    }
+  ],
+  "frictions": [
+    {
+      "description": "The environment did not have rg installed; output filtering was done via node scripts instead.",
+      "resolved": true,
+      "resolution": "Used node-based filtering for listFiles/gitignore checks.",
+      "affectedAssertions": [
+        "VAL-INFRA-003",
+        "VAL-CROSS-006"
+      ]
+    }
+  ],
+  "blockers": [],
+  "toolsUsed": [
+    "Execute",
+    "Read",
+    "LS",
+    "Grep"
+  ],
+  "summary": "Tested 5 assertions: 4 passed, 1 failed (VAL-INFRA-003 due to missing lib/**/*.d.ts rule in .gitignore per contract wording)."
+}
