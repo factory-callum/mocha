@@ -59,6 +59,7 @@ npm pack --dry-run   # Verify package contents
 - The project type is `"commonjs"` in package.json; ESM uses `.mjs` extension
 - On clean checkouts, run `npm run compile` before `npm run lint:code`; eslint-plugin-n resolves runtime `require()` paths that point to compiled `lib/*.js` outputs.
 - Known environment caveat: full integration suite has pre-existing Node 25 failures; prioritize milestone-mapped assertions and treat those failures as non-blocking unless a mission explicitly says otherwise.
+- On Node v25.8.0, `node -e "require('./browser-entry.js')"` currently throws `TypeError: Cannot set property stdout of #<process> which has only a getter`; validate CLI help/build/esm flows separately from this check.
 
 ## Flow Validator Guidance: CLI/Terminal Surface
 

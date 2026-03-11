@@ -1,0 +1,50 @@
+{
+  "milestone": "cli-nodejs-entrypoints",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 16,
+    "passed": 13,
+    "failed": 1,
+    "blocked": 2
+  },
+  "passedAssertions": [
+    "VAL-CLI-001",
+    "VAL-CLI-002",
+    "VAL-CLI-003",
+    "VAL-CLI-005",
+    "VAL-CLI-006",
+    "VAL-CLI-008",
+    "VAL-CLI-009",
+    "VAL-CLI-010",
+    "VAL-CROSS-002",
+    "VAL-CROSS-003",
+    "VAL-CROSS-004",
+    "VAL-CROSS-005",
+    "VAL-CROSS-007"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-CLI-004",
+      "reason": "`node -e \"require('./browser-entry.js')\"` throws on Node v25.8.0: `TypeError: Cannot set property stdout of #<process> which has only a getter`."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CLI-007",
+      "blockedBy": "Known pre-existing Node 25 integration failures documented in mission AGENTS.md (SIGABRT timeout tests and root-hooks ESM expectation mismatch)."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "Known pre-existing Node 25 integration failures documented in mission AGENTS.md cause `npm run test-node` to fail before completion."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Documented Node v25.8.0 browser-entry require failure (`process.stdout` getter-only) discovered during CLI entrypoint validation.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

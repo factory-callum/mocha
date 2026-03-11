@@ -1,0 +1,219 @@
+{
+  "groupId": "cli-main-rest",
+  "milestone": "cli-nodejs-entrypoints",
+  "testedAt": "2026-03-11T06:56:00Z",
+  "credentials": {
+    "account": "test-validator-cli-01@example.com",
+    "password": "placeholder",
+    "namespace": "cli-ui-val-01",
+    "tempDirNamespace": "/tmp/mocha-user-testing-cli-ui-val-01"
+  },
+  "assertionsTested": [
+    "VAL-CLI-002",
+    "VAL-CLI-003",
+    "VAL-CLI-004",
+    "VAL-CLI-005",
+    "VAL-CLI-006",
+    "VAL-CLI-007",
+    "VAL-CLI-008",
+    "VAL-CLI-009",
+    "VAL-CLI-010",
+    "VAL-CROSS-001",
+    "VAL-CROSS-002",
+    "VAL-CROSS-003",
+    "VAL-CROSS-004",
+    "VAL-CROSS-005",
+    "VAL-CROSS-007"
+  ],
+  "passedAssertions": [
+    "VAL-CLI-002",
+    "VAL-CLI-003",
+    "VAL-CLI-005",
+    "VAL-CLI-006",
+    "VAL-CLI-008",
+    "VAL-CLI-009",
+    "VAL-CLI-010",
+    "VAL-CROSS-002",
+    "VAL-CROSS-003",
+    "VAL-CROSS-004",
+    "VAL-CROSS-005",
+    "VAL-CROSS-007"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-CLI-004",
+      "reason": "`node -e \"require('./browser-entry.js')\"` throws on Node v25.8.0: `TypeError: Cannot set property stdout of #<process> which has only a getter`."
+    }
+  ],
+  "blockedAssertions": [
+    {
+      "id": "VAL-CLI-007",
+      "blockedBy": "Known pre-existing Node 25 integration failures documented in mission AGENTS.md (SIGABRT timeout tests and root-hooks ESM expectation mismatch)."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "blockedBy": "Known pre-existing Node 25 integration failures documented in mission AGENTS.md cause `npm run test-node` to fail before completion."
+    }
+  ],
+  "assertionResults": [
+    {
+      "id": "VAL-CLI-002",
+      "status": "pass",
+      "observation": "File checks found 6 `.ts` files in `lib/nodejs/` and 1 `.ts` file in `lib/nodejs/reporters/`, matching expected migrated Node.js runtime files."
+    },
+    {
+      "id": "VAL-CLI-003",
+      "status": "pass",
+      "observation": "File checks found `lib/browser/highlight-tags.ts` and `lib/browser/parse-query.ts` (with `template.html` untouched)."
+    },
+    {
+      "id": "VAL-CLI-004",
+      "status": "fail",
+      "observation": "`node -e \"const m=require('./index.js'); console.log(typeof m)\"` printed `function`, but `node -e \"require('./browser-entry.js')\"` failed with `TypeError: Cannot set property stdout of #<process> which has only a getter`."
+    },
+    {
+      "id": "VAL-CLI-005",
+      "status": "pass",
+      "observation": "`node bin/mocha.js --help` exited 0 and printed standard Mocha help text."
+    },
+    {
+      "id": "VAL-CLI-006",
+      "status": "pass",
+      "observation": "`npm run build` exited 0 and produced `mocha.js` via rollup from TypeScript-based sources."
+    },
+    {
+      "id": "VAL-CLI-007",
+      "status": "blocked",
+      "observation": "`npm run test-node:integration` exited 4 with 355 passing / 1 pending / 4 failing; failures match known pre-existing Node 25 caveats in mission AGENTS.md (`posixExitCodes.spec.js` SIGABRT timeouts and `root-hooks.spec.js` ESM expectation mismatch)."
+    },
+    {
+      "id": "VAL-CLI-008",
+      "status": "pass",
+      "observation": "`npx tsc --noEmit` exited 0 with no diagnostics."
+    },
+    {
+      "id": "VAL-CLI-009",
+      "status": "pass",
+      "observation": "`npm run lint:code` exited 0 with zero warnings/errors."
+    },
+    {
+      "id": "VAL-CLI-010",
+      "status": "pass",
+      "observation": "Browser `.ts` files exist and compile cleanly (`npx tsc --noEmit` exit 0)."
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "status": "blocked",
+      "observation": "`npm run test-node` exited 1 because its integration stage failed with the same 4 known Node 25 failures listed in mission AGENTS.md; other checked suites (`unit`, `reporters`, `interfaces`) passed independently."
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "status": "pass",
+      "observation": "`git ls-files 'lib/**/*.js' 'lib/*.js'` returned no tracked JS source files under `lib/`."
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "status": "pass",
+      "observation": "`npm pack --dry-run --json` listed expected compiled `lib/**/*.js` files in package contents."
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "status": "pass",
+      "observation": "`npm run test-smoke` exited 0 with `1 passing`."
+    },
+    {
+      "id": "VAL-CROSS-005",
+      "status": "pass",
+      "observation": "`npm run test-node:unit` exited 0 with `1107 passing` and `3 pending`, matching baseline behavior in project testing guidance."
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "status": "pass",
+      "observation": "After build, `node --input-type=module -e \"import './mocha.mjs'\"` succeeded with no import error."
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "python3 file checks for lib/cli, lib/nodejs, lib/nodejs/reporters, lib/browser + git ls-files lib/**/*.js",
+      "exitCode": 0,
+      "observation": "Found 14 CLI .ts files, 6 nodejs .ts files, 1 nodejs reporter .ts file, 2 browser .ts files; no tracked lib JS source files."
+    },
+    {
+      "command": "node -e \"const m=require('./index.js'); console.log(typeof m)\" && node -e \"require('./browser-entry.js')\"",
+      "exitCode": 1,
+      "observation": "`index.js` require succeeded (`function`), `browser-entry.js` require failed on process.stdout assignment in Node v25.8.0."
+    },
+    {
+      "command": "node bin/mocha.js --help",
+      "exitCode": 0,
+      "observation": "Help text rendered and process exited successfully."
+    },
+    {
+      "command": "npm run build",
+      "exitCode": 0,
+      "observation": "Compile + rollup succeeded; bundle created."
+    },
+    {
+      "command": "npm run test-node:integration",
+      "exitCode": 4,
+      "observation": "355 passing, 1 pending, 4 failing; failures match known Node 25 caveats documented in mission AGENTS.md."
+    },
+    {
+      "command": "npx tsc --noEmit",
+      "exitCode": 0,
+      "observation": "Typecheck clean."
+    },
+    {
+      "command": "npm run lint:code",
+      "exitCode": 0,
+      "observation": "Lint clean."
+    },
+    {
+      "command": "npm run test-node",
+      "exitCode": 1,
+      "observation": "Failed at integration stage due to same known Node 25 caveat failures."
+    },
+    {
+      "command": "npm run test-smoke",
+      "exitCode": 0,
+      "observation": "Smoke suite passed (1 passing)."
+    },
+    {
+      "command": "npm pack --dry-run --json",
+      "exitCode": 0,
+      "observation": "Package dry-run includes compiled `lib/**/*.js` outputs and expected entry files."
+    },
+    {
+      "command": "node browser-field path existence check for 8 ./lib/*.js keys mapped to false",
+      "exitCode": 0,
+      "observation": "All 8 browser false-mapped lib JS paths exist after compilation."
+    },
+    {
+      "command": "node --input-type=module -e \"import './mocha.mjs'\"",
+      "exitCode": 0,
+      "observation": "ESM entrypoint import succeeded."
+    },
+    {
+      "command": "npm run test-node:unit",
+      "exitCode": 0,
+      "observation": "Unit suite passed: 1107 passing, 3 pending."
+    },
+    {
+      "command": "npm run test-node:reporters && npm run test-node:interfaces",
+      "exitCode": 0,
+      "observation": "Reporter and interface suites passed."
+    }
+  ],
+  "frictions": [
+    "Node v25 emits an unrelated warning during mocha.mjs import (`--localstorage-file` path warning), but import itself succeeds."
+  ],
+  "blockers": [
+    "Known Node 25 integration incompatibilities listed in mission AGENTS.md block VAL-CLI-007 and VAL-CROSS-001 from passing in this environment."
+  ],
+  "toolsUsed": [
+    "Execute",
+    "ApplyPatch",
+    "Task"
+  ],
+  "summary": "Validated 15 assertions in this flow: 12 passed, 1 failed, 2 blocked."
+}

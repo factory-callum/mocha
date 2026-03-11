@@ -1,0 +1,39 @@
+{
+  "groupId": "cli-mini-001",
+  "milestone": "cli-nodejs-entrypoints",
+  "testedAt": "2026-03-11T06:43:50.676795+00:00",
+  "credentials": {
+    "account": "test-validator-cli-mini-01@example.com",
+    "password": "cli-mini-pass",
+    "namespace": "cli-mini-01",
+    "tempNamespaceDir": "/tmp/mocha-user-testing-cli-mini-01"
+  },
+  "assertionsTested": [
+    "VAL-CLI-001"
+  ],
+  "passedAssertions": [
+    "VAL-CLI-001"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "assertionResults": [
+    {
+      "id": "VAL-CLI-001",
+      "status": "pass",
+      "observation": "Command `ls -1 /home/ec2-user/workspace/mocha/lib/cli/*.ts` exited 0 and listed 14 TypeScript files in lib/cli, satisfying the assertion evidence requirement."
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "ls -1 /home/ec2-user/workspace/mocha/lib/cli/*.ts",
+      "exitCode": 0,
+      "observation": "Listed 14 .ts files under lib/cli."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "toolsUsed": [
+    "Execute"
+  ],
+  "summary": "Tested 1 assertion: 1 passed, 0 failed, 0 blocked. VAL-CLI-001 confirmed."
+}
