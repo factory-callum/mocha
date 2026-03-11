@@ -1,0 +1,112 @@
+{
+  "groupId": "core-modules-core",
+  "milestone": "core-modules",
+  "testedAt": "2026-03-11T04:42:31.907892Z",
+  "credentials": {
+    "account": "core-validator-a",
+    "password": "core-validator-a-pass",
+    "namespace": "core-a",
+    "tempDirNamespace": "/tmp/mocha-user-testing-core-a"
+  },
+  "assertionsTested": [
+    "VAL-CORE-001",
+    "VAL-CORE-002",
+    "VAL-CORE-003",
+    "VAL-CORE-004",
+    "VAL-CORE-005",
+    "VAL-CORE-006"
+  ],
+  "passedAssertions": [
+    "VAL-CORE-001",
+    "VAL-CORE-002",
+    "VAL-CORE-003",
+    "VAL-CORE-004",
+    "VAL-CORE-005",
+    "VAL-CORE-006"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "assertionResults": [
+    {
+      "id": "VAL-CORE-001",
+      "status": "pass",
+      "observation": "All required core modules exist as .ts files in lib/, and git ls-files returned no tracked corresponding .js source files for the listed modules."
+    },
+    {
+      "id": "VAL-CORE-002",
+      "status": "pass",
+      "observation": "Core modules contain many TypeScript interfaces/type aliases (123 matching lines across assigned files) and no non-comment typed-any usage matches after filtering comments. Key domain classes (Runner, Suite, Runnable, Test, Hook, Context) expose typed properties/signatures."
+    },
+    {
+      "id": "VAL-CORE-003",
+      "status": "pass",
+      "observation": "`npm run test-node:unit` exited 0 with `1107 passing` and `3 pending` (no failures)."
+    },
+    {
+      "id": "VAL-CORE-004",
+      "status": "pass",
+      "observation": "`npm run build` exited 0; compile + rollup completed and reported `created ./mocha.js`."
+    },
+    {
+      "id": "VAL-CORE-005",
+      "status": "pass",
+      "observation": "`npm run lint:code` exited 0 with no lint errors/warnings."
+    },
+    {
+      "id": "VAL-CORE-006",
+      "status": "pass",
+      "observation": "`npx tsc --noEmit` exited 0 with no TypeScript errors."
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "mkdir -p /tmp/mocha-user-testing-core-a",
+      "exitCode": 0,
+      "observation": "Created assigned temp namespace."
+    },
+    {
+      "command": "ls lib/{mocha,runner,suite,runnable,test,stats-collector,utils,errors,error-constants,plugin-loader,pending,context,hook}.ts && git ls-files lib/{...}.js",
+      "exitCode": 0,
+      "observation": "All required .ts files exist; no listed corresponding .js source files are tracked."
+    },
+    {
+      "command": "TMPDIR=/tmp/mocha-user-testing-core-a npm --prefix /home/ec2-user/workspace/mocha run test-node:unit",
+      "exitCode": 0,
+      "observation": "Unit suite passed: 1107 passing, 3 pending."
+    },
+    {
+      "command": "TMPDIR=/tmp/mocha-user-testing-core-a npm --prefix /home/ec2-user/workspace/mocha run build",
+      "exitCode": 0,
+      "observation": "Build passed; mocha.js bundle generated."
+    },
+    {
+      "command": "TMPDIR=/tmp/mocha-user-testing-core-a npm --prefix /home/ec2-user/workspace/mocha run lint:code",
+      "exitCode": 0,
+      "observation": "Lint passed with max warnings 0."
+    },
+    {
+      "command": "TMPDIR=/tmp/mocha-user-testing-core-a npx --prefix /home/ec2-user/workspace/mocha tsc --noEmit",
+      "exitCode": 0,
+      "observation": "Typecheck passed with no errors."
+    },
+    {
+      "command": "python3 pattern scan across core .ts files for any/interface/type usage",
+      "exitCode": 0,
+      "observation": "Found 123 interface/type lines; 0 non-comment typed-any matches."
+    },
+    {
+      "command": "git -C /home/ec2-user/workspace/mocha status --porcelain",
+      "exitCode": 0,
+      "observation": "Working tree clean after validations."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "toolsUsed": [
+    "Read",
+    "Grep",
+    "Execute",
+    "Skill:tuistory"
+  ],
+  "summary": "Validated 6 core-modules assertions via CLI surface: 6 passed, 0 failed, 0 blocked."
+}
