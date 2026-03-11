@@ -187,5 +187,8 @@ module.exports = defineConfig(
     "scripts/pick-from-package-json.mjs",
     // Hand-written type declarations - not to be linted by typescript-eslint
     "lib/types.d.ts",
+    // Compiled .js output from .ts source — lint the .ts source instead
+    "lib/**/*.js",
+    "lib/**/*.js.map",
   ]),
 );
