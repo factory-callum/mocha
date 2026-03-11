@@ -1,13 +1,12 @@
+/// <reference lib="dom" />
 "use strict";
 
 /**
  * Highlight the given string of `js`.
  *
  * @private
- * @param {string} js
- * @return {string}
  */
-function highlight(js) {
+function highlight(js: string): string {
   return js
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -29,11 +28,14 @@ function highlight(js) {
  * Highlight the contents of tag `name`.
  *
  * @private
- * @param {string} name
  */
-module.exports = function highlightTags(name) {
-  var code = document.getElementById("mocha").getElementsByTagName(name);
-  for (var i = 0, len = code.length; i < len; ++i) {
+module.exports = function highlightTags(name: string): void {
+  const mochaEl = document.getElementById("mocha");
+  if (!mochaEl) {
+    return;
+  }
+  const code = mochaEl.getElementsByTagName(name);
+  for (let i = 0, len = code.length; i < len; ++i) {
     code[i].innerHTML = highlight(code[i].innerHTML);
   }
 };

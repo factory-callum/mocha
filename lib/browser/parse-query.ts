@@ -4,17 +4,15 @@
  * Parse the given `qs`.
  *
  * @private
- * @param {string} qs
- * @return {Object<string, string>}
  */
-module.exports = function parseQuery(qs) {
+module.exports = function parseQuery(qs: string): Record<string, string> {
   return qs
     .replace("?", "")
     .split("&")
-    .reduce(function (obj, pair) {
-      var i = pair.indexOf("=");
-      var key = pair.slice(0, i);
-      var val = pair.slice(i + 1);
+    .reduce(function (obj: Record<string, string>, pair: string) {
+      const i = pair.indexOf("=");
+      const key = pair.slice(0, i);
+      const val = pair.slice(i + 1);
 
       // Due to how the URLSearchParams API treats spaces
       obj[key] = decodeURIComponent(val.replace(/\+/g, "%20"));
