@@ -8,6 +8,7 @@ mocha.js.map
 # Compiled TypeScript output in lib/
 lib/**/*.js
 lib/**/*.js.map
+lib/**/*.d.ts
 !lib/browser/template.html
 
 # Bundle debugging
