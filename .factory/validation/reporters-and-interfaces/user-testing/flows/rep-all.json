@@ -1,0 +1,117 @@
+{
+  "milestone": "reporters-and-interfaces",
+  "groupId": "rep-all",
+  "surface": "CLI/Terminal Surface",
+  "testedAt": "2026-03-11T05:26:14Z",
+  "credentials": {
+    "account": "test-validator-rep-01@example.com",
+    "namespace": "rep-ui-val-01"
+  },
+  "assertions": [
+    {
+      "id": "VAL-REP-001",
+      "status": "pass",
+      "evidence": [
+        "ls lib/reporters/*.ts -> listed 16 files: base.ts, doc.ts, dot.ts, html.ts, index.ts, json-stream.ts, json.ts, landing.ts, list.ts, markdown.ts, min.ts, nyan.ts, progress.ts, spec.ts, tap.ts, xunit.ts",
+        "git ls-files 'lib/reporters/*.js' -> no output (no tracked reporter .js files)"
+      ]
+    },
+    {
+      "id": "VAL-REP-002",
+      "status": "pass",
+      "evidence": [
+        "ls lib/interfaces/*.ts -> listed 6 files: bdd.ts, common.ts, exports.ts, index.ts, qunit.ts, tdd.ts"
+      ]
+    },
+    {
+      "id": "VAL-REP-003",
+      "status": "pass",
+      "evidence": [
+        "npm run test-node:reporters -> exit 0",
+        "Reporter test summary: 146 passing (167ms)"
+      ]
+    },
+    {
+      "id": "VAL-REP-004",
+      "status": "pass",
+      "evidence": [
+        "npm run test-node:interfaces -> exit 0",
+        "Interface test summaries: 3 passing (11ms); 2 passing (30ms); 2 passing, 2 pending (12ms); 7 passing, 3 pending (16ms)"
+      ]
+    },
+    {
+      "id": "VAL-REP-005",
+      "status": "pass",
+      "evidence": [
+        "npx tsc --noEmit -> exit 0 with no type errors"
+      ]
+    },
+    {
+      "id": "VAL-REP-006",
+      "status": "pass",
+      "evidence": [
+        "npm run build -> exit 0; output includes 'created ./mocha.js in 1.1s'",
+        "ls -l mocha.js -> -rw-rw-r--. 1 ec2-user ec2-user 656816 Mar 11 05:25 mocha.js"
+      ]
+    },
+    {
+      "id": "VAL-REP-007",
+      "status": "pass",
+      "evidence": [
+        "npm run lint:code -> exit 0; no lint errors/warnings"
+      ]
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && ls lib/reporters/*.ts",
+      "exitCode": 0,
+      "observation": "Listed 16 reporter TypeScript files."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && git ls-files 'lib/reporters/*.js'",
+      "exitCode": 0,
+      "observation": "No output; no tracked reporter .js files."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && ls lib/interfaces/*.ts",
+      "exitCode": 0,
+      "observation": "Listed 6 interface TypeScript files."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run test-node:reporters",
+      "exitCode": 0,
+      "observation": "Reporter suite passed: 146 passing (167ms)."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run test-node:interfaces",
+      "exitCode": 0,
+      "observation": "All interface sub-suites completed successfully with expected pending tests."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npx tsc --noEmit",
+      "exitCode": 0,
+      "observation": "Typecheck completed successfully with no diagnostics."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run build",
+      "exitCode": 0,
+      "observation": "Build succeeded and generated mocha.js bundle."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && ls -l mocha.js",
+      "exitCode": 0,
+      "observation": "Verified mocha.js exists (size 656816 bytes)."
+    },
+    {
+      "command": "cd /home/ec2-user/workspace/mocha && npm run lint:code",
+      "exitCode": 0,
+      "observation": "Lint completed with zero warnings/errors."
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "toolsUsed": [
+    "terminal"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "milestone": "reporters-and-interfaces",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-REP-001",
+    "VAL-REP-002",
+    "VAL-REP-003",
+    "VAL-REP-004",
+    "VAL-REP-005",
+    "VAL-REP-006",
+    "VAL-REP-007"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
+}
