@@ -5,6 +5,7 @@ const { defineConfig, globalIgnores } = require("eslint/config");
 const n = require("eslint-plugin-n");
 const globals = require("globals");
 const { default: markdown } = require("@eslint/markdown");
+const tseslint = require("typescript-eslint");
 
 const messages = {
   gh237: "See https://github.com/mochajs/mocha/issues/237",
@@ -37,8 +38,8 @@ module.exports = defineConfig(
       "package-scripts.js",
       "karma.conf.js",
       "bin/*",
-      "lib/cli/**/*.js",
-      "lib/nodejs/**/*.js",
+      "lib/cli/**/*.{js,ts}",
+      "lib/nodejs/**/*.{js,ts}",
       "scripts/**/*.{js,mjs}",
       "test/**/*.{js,mjs}",
     ],
@@ -70,7 +71,7 @@ module.exports = defineConfig(
     },
   },
   {
-    files: ["bin/*", "lib/**/*.js"],
+    files: ["bin/*", "lib/**/*.js", "lib/**/*.ts"],
     rules: {
       "no-restricted-globals": [
         "error",
@@ -128,7 +129,7 @@ module.exports = defineConfig(
     },
   },
   {
-    files: ["lib/reporters/*.js"],
+    files: ["lib/reporters/*.js", "lib/reporters/*.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
@@ -139,6 +140,23 @@ module.exports = defineConfig(
             "CallExpression[callee.object.name=console][callee.property.name=log]",
         },
       ],
+    },
+  },
+  {
+    files: ["lib/**/*.ts"],
+    ignores: ["lib/types.d.ts"],
+    extends: [tseslint.configs.recommended],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        projectService: true,
+      },
+    },
+    rules: {
+      "no-redeclare": "off",
+      "no-undef": "off",
+      strict: "off",
+      "@typescript-eslint/no-require-imports": "off",
     },
   },
   {
@@ -166,5 +184,7 @@ module.exports = defineConfig(
     // TODO: ESLint's parser can't parse import attributes
     "rollup.config.mjs",
     "scripts/pick-from-package-json.mjs",
+    // Hand-written type declarations - not to be linted by typescript-eslint
+    "lib/types.d.ts",
   ]),
 );

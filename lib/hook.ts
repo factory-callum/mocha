@@ -1,26 +1,45 @@
 "use strict";
 
-var Runnable = require("./runnable");
+const Runnable = require("./runnable");
 const { constants } = require("./utils");
 const { MOCHA_ID_PROP_NAME } = constants;
 
+interface SerializedHook {
+  $$currentRetry: number;
+  $$fullTitle: string;
+  $$isPending: boolean;
+  $$titlePath: string[];
+  ctx: object;
+  duration: number;
+  file: string;
+  parent: {
+    $$fullTitle: string;
+    [key: string]: unknown;
+  };
+  state: string;
+  title: string;
+  type: string;
+  [key: string]: unknown;
+}
+
 class Hook extends Runnable {
+  _error?: Error | null;
+
   /**
    * Initialize a new `Hook` with the given `title` and callback `fn`
    *
    * @extends Runnable
-   * @param {String} title
-   * @param {Function} fn
    */
-  constructor(title, fn) {
+  constructor(title: string, fn?: (...args: unknown[]) => void) {
     super(title, fn);
     this.type = "hook";
+    this._error = null;
   }
 
   /**
    * Resets the state for a next run.
    */
-  reset() {
+  reset(): void {
     super.reset(this);
     delete this._error;
   }
@@ -30,26 +49,25 @@ class Hook extends Runnable {
    *
    * @memberof Hook
    * @public
-   * @param {Error} err
-   * @return {Error}
    */
-  error(err) {
+  error(): Error | null;
+  error(err: Error): void;
+  error(err?: Error): Error | null | void {
     if (!arguments.length) {
-      err = this._error;
+      const e = this._error;
       this._error = null;
-      return err;
+      return e;
     }
 
-    this._error = err;
+    this._error = err!;
   }
 
   /**
    * Returns an object suitable for IPC.
    * Functions are represented by keys beginning with `$$`.
    * @private
-   * @returns {Object}
    */
-  serialize() {
+  serialize(): SerializedHook {
     return {
       $$currentRetry: this.currentRetry(),
       $$fullTitle: this.fullTitle(),

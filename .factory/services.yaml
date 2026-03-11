@@ -1,0 +1,13 @@
+commands:
+  install: npm install
+  compile: npx tsc
+  typecheck: npx tsc --noEmit
+  build: npm run build
+  lint: npm run lint:code
+  test: npm run test-node:unit
+  test-unit: npm run test-node:unit
+  test-integration: npm run test-node:integration
+  test-reporters: npm run test-node:reporters
+  test-interfaces: npm run test-node:interfaces
+  test-smoke: npm run test-smoke
+  test-full: npm run test-node

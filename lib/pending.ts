@@ -6,11 +6,9 @@
 
 /**
  * Initialize a new `PendingError` error with the given message.
- *
- * @param {string} message
  */
 class PendingError extends Error {
-  constructor(message) {
+  constructor(message: string) {
     super(message);
     this.name = "PendingError";
   }

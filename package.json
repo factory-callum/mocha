@@ -43,7 +43,8 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
-    "build": "rollup -c ./rollup.config.mjs",
+    "compile": "tsc",
+    "build": "npm run compile && rollup -c ./rollup.config.mjs",
     "clean": "rimraf mocha.js mocha.js.map",
     "docs": "cd docs-next; npm run docs",
     "format:check": "prettier --check .",
@@ -151,6 +152,7 @@
     "semver": "^7.7.2",
     "sinon": "^9.0.3",
     "typescript": "^5.8.3",
+    "typescript-eslint": "^8.57.0",
     "unexpected": "^11.14.0",
     "unexpected-eventemitter": "^2.2.0",
     "unexpected-map": "^3.0.0",

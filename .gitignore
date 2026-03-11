@@ -4,7 +4,11 @@ mocha.js
 mocha.js.map
 .karma/
 !bin/mocha.js
-!lib/mocha.js
+
+# Compiled TypeScript output in lib/
+lib/**/*.js
+lib/**/*.js.map
+!lib/browser/template.html
 
 # Bundle debugging
 stats.html
