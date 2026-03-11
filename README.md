@@ -57,6 +57,12 @@ You might want to know that:
 - Mocha is one of the _most-depended-upon_ modules on npm (source: [libraries.io](https://libraries.io/search?order=desc&platforms=NPM&sort=dependents_count)), and
 - Mocha is an _independent_ open-source project, maintained exclusively by volunteers.
 
+The source code in `lib/` is written in TypeScript (strict mode). The build pipeline is:
+
+- `npm run compile` — compiles TypeScript to JavaScript via `tsc`
+- `npm run build` — bundles the browser build via Rollup
+- `npm run test-node:unit` — runs the test suite (tests are JavaScript and run against compiled output)
+
 You might want to help:
 
 - New to contributing to Mocha? Check out this list of [good first issues](https://github.com/mochajs/mocha/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
