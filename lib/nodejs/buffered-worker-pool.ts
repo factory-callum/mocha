@@ -7,11 +7,8 @@
 
 "use strict";
 
-/**
- * @typedef {import('workerpool').WorkerPoolOptions} WorkerPoolOptions
- * @typedef {import('../types.d.ts').MochaOptions} MochaOptions
- * @typedef {import('../types.d.ts').SerializedWorkerResult} SerializedWorkerResult
- */
+import type { MochaOptions, SerializedWorkerResult } from "../types.d.ts";
+import type { WorkerPoolOptions } from "workerpool";
 
 const serializeJavascript = require("serialize-javascript");
 const workerpool = require("workerpool");
@@ -21,20 +18,34 @@ const { createInvalidArgumentTypeError } = require("../errors");
 
 const WORKER_PATH = require.resolve("./worker.js");
 
+/** Stats returned by the worker pool */
+interface PoolStats {
+  totalWorkers: number;
+  busyWorkers: number;
+  idleWorkers: number;
+  pendingTasks: number;
+  activeTasks: number;
+}
+
+/** Interface representing the workerpool Pool instance */
+interface WorkerPool {
+  terminate(force?: boolean): Promise<void>;
+  exec(method: string, params: unknown[]): Promise<unknown>;
+  stats(): PoolStats;
+}
+
 /**
  * A mapping of Mocha `Options` objects to serialized values.
  *
  * This is helpful because we tend to same the same options over and over
  * over IPC.
- * @type {WeakMap<MochaOptions,string>}
  */
-let optionsCache = new WeakMap();
+let optionsCache: WeakMap<MochaOptions, string> = new WeakMap();
 
 /**
  * These options are passed into the [workerpool](https://npm.im/workerpool) module.
- * @type {Partial<WorkerPoolOptions>}
  */
-const WORKER_POOL_DEFAULT_OPTS = {
+const WORKER_POOL_DEFAULT_OPTS: Partial<WorkerPoolOptions> = {
   // use child processes, not worker threads!
   workerType: "process",
   // ensure the same flags sent to `node` for this `mocha` invocation are passed
@@ -48,16 +59,18 @@ const WORKER_POOL_DEFAULT_OPTS = {
  * @private
  */
 class BufferedWorkerPool {
+  options: Partial<WorkerPoolOptions>;
+  _pool: WorkerPool;
+
   /**
    * Creates an underlying worker pool instance; determines max worker count
-   * @param {Partial<WorkerPoolOptions>} [opts] - Options
    */
-  constructor(opts = {}) {
+  constructor(opts: Partial<WorkerPoolOptions> = {}) {
     const maxWorkers = Math.max(
       1,
       typeof opts.maxWorkers === "undefined"
-        ? WORKER_POOL_DEFAULT_OPTS.maxWorkers
-        : opts.maxWorkers,
+        ? (WORKER_POOL_DEFAULT_OPTS.maxWorkers as number)
+        : (opts.maxWorkers as number),
     );
 
     /* istanbul ignore next */
@@ -82,12 +95,18 @@ class BufferedWorkerPool {
     );
 
     let counter = 0;
-    const onCreateWorker = ({ forkOpts }) => {
+    const onCreateWorker = ({
+      forkOpts,
+    }: {
+      forkOpts?: import("child_process").ForkOptions;
+    }): {
+      forkOpts: import("child_process").ForkOptions;
+    } => {
       return {
         forkOpts: {
           ...forkOpts,
           // adds an incremental id to all workers, which can be useful to allocate resources for each process
-          env: { ...process.env, MOCHA_WORKER_ID: counter++ },
+          env: { ...process.env, MOCHA_WORKER_ID: String(counter++) },
         },
       };
     };
@@ -98,16 +117,14 @@ class BufferedWorkerPool {
       maxWorkers,
       onCreateWorker,
     };
-    this._pool = workerpool.pool(WORKER_PATH, this.options);
+    this._pool = workerpool.pool(WORKER_PATH, this.options) as WorkerPool;
   }
 
   /**
    * Terminates all workers in the pool.
-   * @param {boolean} [force] - Whether to force-kill workers. By default, lets workers finish their current task before termination.
    * @private
-   * @returns {Promise<void>}
    */
-  async terminate(force = false) {
+  async terminate(force: boolean = false): Promise<void> {
     /* istanbul ignore next */
     debug("terminate(): terminating with force = %s", force);
     return this._pool.terminate(force);
@@ -117,13 +134,12 @@ class BufferedWorkerPool {
    * Adds a test file run to the worker pool queue for execution by a worker process.
    *
    * Handles serialization/deserialization.
-   *
-   * @param {string} filepath - Filepath of test
-   * @param {MochaOptions} [options] - Options for Mocha instance
    * @private
-   * @returns {Promise<SerializedWorkerResult>}
    */
-  async run(filepath, options = {}) {
+  async run(
+    filepath: string,
+    options: MochaOptions = {},
+  ): Promise<SerializedWorkerResult> {
     if (!filepath || typeof filepath !== "string") {
       throw createInvalidArgumentTypeError(
         "Expected a non-empty filepath",
@@ -133,17 +149,16 @@ class BufferedWorkerPool {
     }
     const serializedOptions = BufferedWorkerPool.serializeOptions(options);
     const result = await this._pool.exec("run", [filepath, serializedOptions]);
-    return deserialize(result);
+    return deserialize(result) as SerializedWorkerResult;
   }
 
   /**
    * Returns stats about the state of the worker processes in the pool.
    *
    * Used for debugging.
-   *
    * @private
    */
-  stats() {
+  stats(): PoolStats {
     return this._pool.stats();
   }
 
@@ -151,21 +166,20 @@ class BufferedWorkerPool {
    * Instantiates a {@link WorkerPool}.
    * @private
    */
-  static create(...args) {
+  static create(
+    ...args: ConstructorParameters<typeof BufferedWorkerPool>
+  ): BufferedWorkerPool {
     return new BufferedWorkerPool(...args);
   }
 
   /**
    * Given Mocha options object `opts`, serialize into a format suitable for
    * transmission over IPC.
-   *
-   * @param {MochaOptions} [opts] - Mocha options
    * @private
-   * @returns {string} Serialized options
    */
-  static serializeOptions(opts = {}) {
+  static serializeOptions(opts: MochaOptions = {}): string {
     if (!optionsCache.has(opts)) {
-      const serialized = serializeJavascript(opts, {
+      const serialized: string = serializeJavascript(opts, {
         unsafe: true, // this means we don't care about XSS
         ignoreFunction: true, // do not serialize functions
       });
@@ -177,7 +191,7 @@ class BufferedWorkerPool {
         serialized,
       );
     }
-    return optionsCache.get(opts);
+    return optionsCache.get(opts) as string;
   }
 
   /**
@@ -186,7 +200,7 @@ class BufferedWorkerPool {
    * For testing/debugging
    * @private
    */
-  static resetOptionsCache() {
+  static resetOptionsCache(): void {
     optionsCache = new WeakMap();
   }
 }

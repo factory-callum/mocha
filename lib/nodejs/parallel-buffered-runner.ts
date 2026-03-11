@@ -6,12 +6,7 @@
 
 "use strict";
 
-/**
- * @typedef {import('../types.d.ts').FileRunner} FileRunner
- * @typedef {import('../types.d.ts').RunnerOptions} RunnerOptions
- * @typedef {import('../types.d.ts').SerializedWorkerResult} SerializedWorkerResult
- * @typedef {import('../types.d.ts').SigIntListener} SigIntListener
- */
+import type { MochaOptions } from "../types.d.ts";
 
 const Runner = require("../runner");
 const { EVENT_RUN_BEGIN, EVENT_RUN_END } = Runner.constants;
@@ -22,13 +17,13 @@ const { createMap, constants } = require("../utils");
 const { MOCHA_ID_PROP_NAME } = constants;
 const { createFatalError } = require("../errors");
 
-const DEFAULT_WORKER_REPORTER =
+const DEFAULT_WORKER_REPORTER: string =
   require.resolve("./reporters/parallel-buffered");
 
 /**
  * List of options to _not_ serialize for transmission to workers
  */
-const DENY_OPTIONS = [
+const DENY_OPTIONS: string[] = [
   "globalSetup",
   "globalTeardown",
   "parallel",
@@ -37,13 +32,34 @@ const DENY_OPTIONS = [
   "j",
 ];
 
+/** Stats from the worker pool */
+interface PoolStats {
+  totalWorkers: number;
+  busyWorkers: number;
+  idleWorkers: number;
+  pendingTasks: number;
+}
+
+/** Interface for events coming from worker results */
+interface WorkerEvent {
+  eventName: string;
+  data?: Record<string, unknown> & { _bail?: boolean };
+  error?: Error;
+}
+
+/** Interface for the options passed to ParallelBufferedRunner#run */
+interface ParallelRunOptions {
+  files?: string[];
+  options?: MochaOptions & { jobs?: number; reporter?: string };
+}
+
 /**
  * Outputs a debug statement with worker stats
- * @param {BufferedWorkerPool} pool - Worker pool
  */
 /* istanbul ignore next */
-const debugStats = (pool) => {
-  const { totalWorkers, busyWorkers, idleWorkers, pendingTasks } = pool.stats();
+const debugStats = (pool: InstanceType<typeof BufferedWorkerPool>): void => {
+  const { totalWorkers, busyWorkers, idleWorkers, pendingTasks }: PoolStats =
+    pool.stats();
   debug(
     "%d/%d busy workers; %d idle; %d tasks queued",
     busyWorkers,
@@ -66,7 +82,7 @@ const BAILING = "BAILING";
 const BAILED = "BAILED";
 const COMPLETE = "COMPLETE";
 
-const states = createMap({
+const states: Record<string, Set<string>> = createMap({
   [IDLE]: new Set([RUNNING, ABORTING]),
   [RUNNING]: new Set([COMPLETE, BAILING, ABORTING]),
   [COMPLETE]: new Set(),
@@ -82,15 +98,19 @@ const states = createMap({
  * @public
  */
 class ParallelBufferedRunner extends Runner {
-  constructor(...args) {
+  _workerReporter: string;
+  _linkPartialObjects: boolean;
+  _linkedObjectMap: Map<string, Record<string, unknown>>;
+
+  constructor(...args: ConstructorParameters<typeof Runner>) {
     super(...args);
 
     let state = IDLE;
     Object.defineProperty(this, "_state", {
-      get() {
+      get(): string {
         return state;
       },
-      set(newState) {
+      set(newState: string) {
         if (states[state].has(newState)) {
           state = newState;
         } else {
@@ -110,18 +130,16 @@ class ParallelBufferedRunner extends Runner {
 
   /**
    * Returns a mapping function to enqueue a file in the worker pool and return results of its execution.
-   * @param {BufferedWorkerPool} pool - Worker pool
-   * @param {RunnerOptions} options - Mocha options
-   * @returns {FileRunner} Mapping function
    * @private
    */
-  _createFileRunner(pool, options) {
+  _createFileRunner(
+    pool: InstanceType<typeof BufferedWorkerPool>,
+    options: MochaOptions,
+  ): (file: string) => Promise<void> {
     /**
      * Emits event and sets `BAILING` state, if necessary.
-     * @param {Object} event - Event having `eventName`, maybe `data` and maybe `error`
-     * @param {number} failureCount - Failure count
      */
-    const emitEvent = (event, failureCount) => {
+    const emitEvent = (event: WorkerEvent, failureCount: number): void => {
       this.emit(event.eventName, event.data, event.error);
       if (
         this._state !== BAILING &&
@@ -138,19 +156,20 @@ class ParallelBufferedRunner extends Runner {
 
     /**
      * Given an event, recursively find any objects in its data that have ID's, and create object references to already-seen objects.
-     * @param {Object} event - Event having `eventName`, maybe `data` and maybe `error`
      */
-    const linkEvent = (event) => {
-      const stack = [{ parent: event, prop: "data" }];
+    const linkEvent = (event: WorkerEvent): void => {
+      const stack: { parent: Record<string, unknown>; prop: string }[] = [
+        { parent: event as unknown as Record<string, unknown>, prop: "data" },
+      ];
       while (stack.length) {
-        const { parent, prop } = stack.pop();
-        const obj = parent[prop];
-        let newObj;
+        const { parent, prop } = stack.pop()!;
+        const obj = parent[prop] as Record<string, unknown> | undefined;
+        let newObj: Record<string, unknown> | undefined;
         if (obj && typeof obj === "object") {
           if (obj[MOCHA_ID_PROP_NAME]) {
-            const id = obj[MOCHA_ID_PROP_NAME];
+            const id = obj[MOCHA_ID_PROP_NAME] as string;
             newObj = this._linkedObjectMap.has(id)
-              ? Object.assign(this._linkedObjectMap.get(id), obj)
+              ? Object.assign(this._linkedObjectMap.get(id)!, obj)
               : obj;
             this._linkedObjectMap.set(id, newObj);
             parent[prop] = newObj;
@@ -161,19 +180,32 @@ class ParallelBufferedRunner extends Runner {
             );
           }
         }
-        Object.keys(newObj).forEach((key) => {
-          const value = obj[key];
-          if (value && typeof value === "object" && value[MOCHA_ID_PROP_NAME]) {
-            stack.push({ obj: value, parent: newObj, prop: key });
+        Object.keys(newObj!).forEach((key) => {
+          const value = obj![key];
+          if (
+            value &&
+            typeof value === "object" &&
+            (value as Record<string, unknown>)[MOCHA_ID_PROP_NAME]
+          ) {
+            stack.push({
+              parent: newObj!,
+              prop: key,
+            });
           }
         });
       }
     };
 
-    return async (file) => {
+    return async (file: string): Promise<void> => {
       debug("run(): enqueueing test file %s", file);
       try {
-        const { failureCount, events } = await pool.run(file, options);
+        const {
+          failureCount,
+          events,
+        }: { failureCount: number; events: WorkerEvent[] } = (await pool.run(
+          file,
+          options,
+        )) as unknown as { failureCount: number; events: WorkerEvent[] };
 
         if (this._state === BAILED) {
           // short-circuit after a graceful bail. if this happens,
@@ -189,7 +221,7 @@ class ParallelBufferedRunner extends Runner {
           events.length,
         );
         this.failures += failureCount; // can this ever be non-numeric?
-        let event = events.shift();
+        let event: WorkerEvent | undefined = events.shift();
 
         if (this._linkPartialObjects) {
           while (event) {
@@ -233,12 +265,12 @@ class ParallelBufferedRunner extends Runner {
   /**
    * Listen on `Process.SIGINT`; terminate pool if caught.
    * Returns the listener for later call to `process.removeListener()`.
-   * @param {BufferedWorkerPool} pool - Worker pool
-   * @returns {SigIntListener} Listener
    * @private
    */
-  _bindSigIntListener(pool) {
-    const sigIntListener = async () => {
+  _bindSigIntListener(
+    pool: InstanceType<typeof BufferedWorkerPool>,
+  ): () => Promise<void> {
+    const sigIntListener = async (): Promise<void> => {
       debug("run(): caught a SIGINT");
       this._state = ABORTING;
 
@@ -273,20 +305,22 @@ class ParallelBufferedRunner extends Runner {
    * an RPC--it returns a `Promise` containing serialized information about the
    * run.  The information is processed as it's received, and emitted to a
    * {@link Reporter}, which is likely listening for these events.
-   *
-   * @param {Function} callback - Called with an exit code corresponding to
-   * number of test failures.
-   * @param {RunnerOptions} [opts] - options
    */
-  run(callback, { files, options = {} } = {}) {
+  run(
+    callback?: (failures: number) => void,
+    { files, options = {} }: ParallelRunOptions = {},
+  ): this {
     /**
      * Listener on `Process.SIGINT` which tries to cleanly terminate the worker pool.
      */
-    let sigIntListener;
+    let sigIntListener: (() => Promise<void>) | undefined;
 
     // assign the reporter the worker will use, which will be different than the
     // main process' reporter
-    options = { ...options, reporter: this._workerReporter };
+    const workerOptions: MochaOptions & { reporter?: string; jobs?: number } = {
+      ...options,
+      reporter: this._workerReporter,
+    };
 
     // This function should _not_ return a `Promise`; its parent (`Runner#run`)
     // returns this instance, so this should do the same. However, we want to make
@@ -295,21 +329,20 @@ class ParallelBufferedRunner extends Runner {
       /**
        * This is an interval that outputs stats about the worker pool every so often
        */
-      let debugInterval;
+      let debugInterval: ReturnType<typeof setInterval> | undefined;
 
-      /**
-       * @type {BufferedWorkerPool}
-       */
-      let pool;
+      let pool: InstanceType<typeof BufferedWorkerPool> | undefined;
 
       try {
-        pool = BufferedWorkerPool.create({ maxWorkers: options.jobs });
+        pool = BufferedWorkerPool.create({
+          maxWorkers: workerOptions.jobs,
+        });
 
         sigIntListener = this._bindSigIntListener(pool);
 
         /* istanbul ignore next */
         debugInterval = setInterval(
-          () => debugStats(pool),
+          () => debugStats(pool!),
           DEBUG_STATS_INTERVAL,
         ).unref();
 
@@ -320,21 +353,24 @@ class ParallelBufferedRunner extends Runner {
 
         this.emit(EVENT_RUN_BEGIN);
 
-        options = { ...options };
+        const filteredOptions: Record<string, unknown> = { ...workerOptions };
         DENY_OPTIONS.forEach((opt) => {
-          delete options[opt];
+          delete filteredOptions[opt];
         });
 
         const results = await Promise.allSettled(
-          files.map(this._createFileRunner(pool, options)),
+          files!.map(this._createFileRunner(pool, filteredOptions as MochaOptions)),
         );
 
         // note that pool may already be terminated due to --bail
         await pool.terminate();
 
         results
-          .filter(({ status }) => status === "rejected")
-          .forEach(({ reason }) => {
+          .filter(
+            ({ status }: PromiseSettledResult<void>) => status === "rejected",
+          )
+          .forEach((result: PromiseSettledResult<void>) => {
+            const { reason } = result as PromiseRejectedResult;
             if (this.allowUncaught) {
               // yep, just the first one.
               throw reason;
@@ -350,7 +386,7 @@ class ParallelBufferedRunner extends Runner {
 
         this.emit(EVENT_RUN_END);
         debug("run(): completing with failure count %d", this.failures);
-        callback(this.failures);
+        callback!(this.failures);
       } catch (err) {
         // this `nextTick` takes us out of the `Promise` scope, so the
         // exception will not be caught and returned as a rejected `Promise`,
@@ -361,7 +397,7 @@ class ParallelBufferedRunner extends Runner {
         });
       } finally {
         clearInterval(debugInterval);
-        process.removeListener("SIGINT", sigIntListener);
+        process.removeListener("SIGINT", sigIntListener!);
       }
     })();
     return this;
@@ -370,9 +406,6 @@ class ParallelBufferedRunner extends Runner {
   /**
    * Toggle partial object linking behavior; used for building object references from
    * unique ID's.
-   * @param {boolean} [value] - If `true`, enable partial object linking, otherwise disable
-   * @returns {Runner}
-   * @chainable
    * @public
    * @example
    * // this reporter needs proper object references when run in parallel mode
@@ -388,7 +421,7 @@ class ParallelBufferedRunner extends Runner {
    *   }
    * }
    */
-  linkPartialObjects(value) {
+  linkPartialObjects(value?: boolean): this {
     this._linkPartialObjects = Boolean(value);
     return super.linkPartialObjects(value);
   }
@@ -397,10 +430,9 @@ class ParallelBufferedRunner extends Runner {
    * If this class is the `Runner` in use, then this is going to return `true`.
    *
    * For use by reporters.
-   * @returns {true}
    * @public
    */
-  isParallelMode() {
+  isParallelMode(): true {
     return true;
   }
 
@@ -408,12 +440,9 @@ class ParallelBufferedRunner extends Runner {
    * Configures an alternate reporter for worker processes to use. Subclasses
    * using worker processes should implement this.
    * @public
-   * @param {string} path - Absolute path to alternate reporter for worker processes to use
-   * @returns {Runner}
    * @throws When in serial mode
-   * @chainable
    */
-  workerReporter(reporter) {
+  workerReporter(reporter: string): this {
     this._workerReporter = reporter;
     return this;
   }

@@ -3,9 +3,21 @@ const url = require("node:url");
 const debug = require("debug")("mocha:esm-utils");
 const { isMochaError } = require("../errors");
 
-const forward = (x) => x;
+const forward = (x: string | URL): string | URL => x;
 
-const formattedImport = async (file, esmDecorator = forward) => {
+/** Type for ESM decorator functions that transform file paths/URLs before import */
+type EsmDecorator = (file: string | URL) => string | URL;
+
+/** Type for an ESM module with a possible default export */
+interface EsmModule {
+  default?: unknown;
+  [key: string]: unknown;
+}
+
+const formattedImport = async (
+  file: string,
+  esmDecorator: EsmDecorator = forward,
+): Promise<unknown> => {
   if (path.isAbsolute(file)) {
     try {
       return await exports.doImport(esmDecorator(url.pathToFileURL(file)));
@@ -34,23 +46,26 @@ const formattedImport = async (file, esmDecorator = forward) => {
   return exports.doImport(esmDecorator(file));
 };
 
-exports.doImport = async (file) => import(file);
+exports.doImport = async (file: string | URL): Promise<unknown> => import(file as string);
 
 // When require(esm) is not available, we need to use `import()` to load ESM modules.
 // In this case, CJS modules are loaded using `import()` as well. When Node.js' builtin
 // TypeScript support is enabled, `.ts` files are also loaded using `import()`, and
 // compilers based on `require.extensions` are omitted.
-const tryImportAndRequire = async (file, esmDecorator) => {
+const tryImportAndRequire = async (
+  file: string,
+  esmDecorator?: EsmDecorator,
+): Promise<unknown> => {
   if (path.extname(file) === ".mjs") {
     return formattedImport(file, esmDecorator);
   }
   try {
-    return dealWithExports(await formattedImport(file, esmDecorator));
+    return dealWithExports(await formattedImport(file, esmDecorator) as EsmModule);
   } catch (err) {
     if (
-      err.code === "ERR_MODULE_NOT_FOUND" ||
-      err.code === "ERR_UNKNOWN_FILE_EXTENSION" ||
-      err.code === "ERR_UNSUPPORTED_DIR_IMPORT"
+      (err as NodeJS.ErrnoException).code === "ERR_MODULE_NOT_FOUND" ||
+      (err as NodeJS.ErrnoException).code === "ERR_UNKNOWN_FILE_EXTENSION" ||
+      (err as NodeJS.ErrnoException).code === "ERR_UNSUPPORTED_DIR_IMPORT"
     ) {
       try {
         // Importing a file usually works, but the resolution of `import` is the ESM
@@ -59,7 +74,7 @@ const tryImportAndRequire = async (file, esmDecorator) => {
         return require(file);
       } catch (requireErr) {
         if (
-          requireErr.code === "ERR_REQUIRE_ESM" ||
+          (requireErr as NodeJS.ErrnoException).code === "ERR_REQUIRE_ESM" ||
           (requireErr instanceof SyntaxError &&
             requireErr
               .toString()
@@ -91,19 +106,22 @@ const tryImportAndRequire = async (file, esmDecorator) => {
 // and CJS modules. This keeps the require() features like `require.extensions`
 // and `require.cache` effective, while allowing us to load ESM modules
 // and CJS modules in the same way.
-const requireModule = async (file, esmDecorator) => {
+const requireModule = async (
+  file: string,
+  esmDecorator?: EsmDecorator,
+): Promise<unknown> => {
   if (path.extname(file) === ".mjs") {
     return formattedImport(file, esmDecorator);
   }
   try {
     return require(file);
   } catch (requireErr) {
-    debug("requireModule caught err: %O", requireErr.message);
-    if (requireErr.name === "TSError" || isMochaError(requireErr)) {
+    debug("requireModule caught err: %O", (requireErr as Error).message);
+    if ((requireErr as Error).name === "TSError" || isMochaError(requireErr)) {
       throw requireErr;
     }
     try {
-      return dealWithExports(await formattedImport(file, esmDecorator));
+      return dealWithExports(await formattedImport(file, esmDecorator) as EsmModule);
     } catch (importErr) {
       // If a --require module throws in a Node.js version that doesn't yet support .ts files,
       // the fallback import() will throw an uninformative error about the file extension.
@@ -111,7 +129,7 @@ const requireModule = async (file, esmDecorator) => {
       // See: https://github.com/mochajs/mocha/issues/5393
       if (
         /\.(cts|mts|ts)$/.test(file) ||
-        importErr.code === "ERR_UNKNOWN_FILE_EXTENSION"
+        (importErr as NodeJS.ErrnoException).code === "ERR_UNKNOWN_FILE_EXTENSION"
       ) {
         throw requireErr;
       }
@@ -119,7 +137,7 @@ const requireModule = async (file, esmDecorator) => {
       // Similarly, for an exports/imports mismatch such as a missing 'default',
       // the require() error will be more informative for users.
       // See: https://github.com/mochajs/mocha/issues/5411
-      if (importErr.code === "ERR_INTERNAL_ASSERTION") {
+      if ((importErr as NodeJS.ErrnoException).code === "ERR_INTERNAL_ASSERTION") {
         throw requireErr;
       }
 
@@ -132,15 +150,19 @@ const requireModule = async (file, esmDecorator) => {
 // We check for file extensions in `requireModule` and `tryImportAndRequire`
 debug(
   "assigning requireOrImport, require_module === %O",
-  process.features.require_module,
+  (process as unknown as Record<string, Record<string, unknown>>).features
+    .require_module,
 );
-if (process.features.require_module) {
+if (
+  (process as unknown as Record<string, Record<string, unknown>>).features
+    .require_module
+) {
   exports.requireOrImport = requireModule;
 } else {
   exports.requireOrImport = tryImportAndRequire;
 }
 
-function dealWithExports(module) {
+function dealWithExports(module: EsmModule): unknown {
   if (module.default) {
     return module.default;
   } else {
@@ -149,11 +171,11 @@ function dealWithExports(module) {
 }
 
 exports.loadFilesAsync = async (
-  files,
-  preLoadFunc,
-  postLoadFunc,
-  esmDecorator,
-) => {
+  files: string[],
+  preLoadFunc: (file: string) => void,
+  postLoadFunc: (file: string, result: unknown) => void,
+  esmDecorator?: EsmDecorator,
+): Promise<void> => {
   for (const file of files) {
     preLoadFunc(file);
     const result = await exports.requireOrImport(

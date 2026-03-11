@@ -6,10 +6,7 @@
 
 "use strict";
 
-/**
- * @typedef {import('../types.d.ts').BufferedEvent} BufferedEvent
- * @typedef {import('../types.d.ts').MochaOptions} MochaOptions
- */
+import type { MochaOptions } from "../types.d.ts";
 
 const {
   createInvalidArgumentTypeError,
@@ -20,11 +17,13 @@ const Mocha = require("../mocha");
 const { handleRequires, validateLegacyPlugin } = require("../cli/run-helpers");
 const d = require("debug");
 const debug = d.debug(`mocha:parallel:worker:${process.pid}`);
-const isDebugEnabled = d.enabled(`mocha:parallel:worker:${process.pid}`);
+const isDebugEnabled: boolean = d.enabled(
+  `mocha:parallel:worker:${process.pid}`,
+);
 const { serialize } = require("./serializer");
 const { setInterval, clearInterval } = global;
 
-let rootHooks;
+let rootHooks: unknown;
 
 if (workerpool.isMainThread) {
   throw new Error(
@@ -40,30 +39,27 @@ if (workerpool.isMainThread) {
  *
  * **This function only runs once per worker**; it overwrites itself with a no-op
  * before returning.
- *
- * @param {MochaOptions} argv - Command-line options
  */
-let bootstrap = async (argv) => {
+let bootstrap = async (argv: MochaOptions): Promise<void> => {
   // globalSetup and globalTeardown do not run in workers
-  const plugins = await handleRequires(argv.require, {
+  const plugins: Record<string, unknown> = await handleRequires(argv.require, {
     ignoredPlugins: ["mochaGlobalSetup", "mochaGlobalTeardown"],
   });
   validateLegacyPlugin(argv, "ui", Mocha.interfaces);
 
   rootHooks = plugins.rootHooks;
-  bootstrap = () => {};
+  bootstrap = async () => {};
   debug("bootstrap(): finished with args: %O", argv);
 };
 
 /**
  * Runs a single test file in a worker thread.
- * @param {string} filepath - Filepath of test file
- * @param {string} [serializedOptions] - **Serialized** options. This string will be eval'd!
  * @see https://npm.im/serialize-javascript
- * @returns {Promise<{failures: number, events: BufferedEvent[]}>} - Test
- * failure count and list of events.
  */
-async function run(filepath, serializedOptions = "{}") {
+async function run(
+  filepath: string,
+  serializedOptions: string = "{}",
+): Promise<unknown> {
   if (!filepath) {
     throw createInvalidArgumentTypeError(
       'Expected a non-empty "filepath" argument',
@@ -81,7 +77,7 @@ async function run(filepath, serializedOptions = "{}") {
       "string",
     );
   }
-  let argv;
+  let argv: MochaOptions;
   try {
     argv = eval("(" + serializedOptions + ")");
   } catch {
@@ -92,7 +88,7 @@ async function run(filepath, serializedOptions = "{}") {
     );
   }
 
-  const opts = Object.assign({ ui: "bdd" }, argv, {
+  const opts: MochaOptions = Object.assign({ ui: "bdd" }, argv, {
     // if this was true, it would cause infinite recursion.
     parallel: false,
     // this doesn't work in parallel mode
@@ -103,7 +99,7 @@ async function run(filepath, serializedOptions = "{}") {
 
   await bootstrap(opts);
 
-  opts.rootHooks = rootHooks;
+  opts.rootHooks = rootHooks as MochaOptions["rootHooks"];
 
   const mocha = new Mocha(opts).addFile(filepath);
 
@@ -115,14 +111,14 @@ async function run(filepath, serializedOptions = "{}") {
   }
 
   return new Promise((resolve, reject) => {
-    let debugInterval;
+    let debugInterval: ReturnType<typeof setInterval> | undefined;
     /* istanbul ignore next */
     if (isDebugEnabled) {
       debugInterval = setInterval(() => {
         debug("run(): still running %s...", filepath);
       }, 5000).unref();
     }
-    mocha.run((result) => {
+    mocha.run((result: unknown) => {
       // Runner adds these; if we don't remove them, we'll get a leak.
       process.removeAllListeners("uncaughtException");
       process.removeAllListeners("unhandledRejection");
@@ -131,7 +127,9 @@ async function run(filepath, serializedOptions = "{}") {
         const serialized = serialize(result);
         debug(
           "run(): completed run with %d test failures; returning to main process",
-          typeof result.failures === "number" ? result.failures : 0,
+          typeof (result as Record<string, unknown>)?.failures === "number"
+            ? (result as Record<string, unknown>).failures
+            : 0,
         );
         resolve(serialized);
       } catch (err) {

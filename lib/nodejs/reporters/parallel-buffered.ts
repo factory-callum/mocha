@@ -7,11 +7,6 @@
 "use strict";
 
 /**
- * @typedef {import('../../types.d.ts').BufferedEvent} BufferedEvent
- * @typedef {import('../../runner.js')} Runner
- */
-
-/**
  * Module dependencies.
  */
 
@@ -37,11 +32,23 @@ const {
 const debug = require("debug")("mocha:reporters:buffered");
 const Base = require("../../reporters/base");
 
+/** Interface for a runner-like object with event emitter capabilities */
+interface RunnerLike {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string, listener: (...args: any[]) => void): void;
+  removeListener(event: string, listener: EventListener): void;
+}
+
+/** Type for event listener functions */
+type EventListener = (...args: unknown[]) => void;
+
 /**
  * List of events to listen to; these will be buffered and sent
  * when `Mocha#run` is complete (via {@link ParallelBuffered#done}).
  */
-const EVENT_NAMES = [
+const EVENT_NAMES: string[] = [
   EVENT_SUITE_BEGIN,
   EVENT_SUITE_END,
   EVENT_TEST_BEGIN,
@@ -58,7 +65,7 @@ const EVENT_NAMES = [
  * Like {@link EVENT_NAMES}, except we expect these events to only be emitted
  * by the `Runner` once.
  */
-const ONCE_EVENT_NAMES = [EVENT_DELAY_BEGIN, EVENT_DELAY_END];
+const ONCE_EVENT_NAMES: string[] = [EVENT_DELAY_BEGIN, EVENT_DELAY_END];
 
 /**
  * The `ParallelBuffered` reporter is used by each worker process in "parallel"
@@ -70,24 +77,24 @@ const ONCE_EVENT_NAMES = [EVENT_DELAY_BEGIN, EVENT_DELAY_END];
  */
 class ParallelBuffered extends Base {
   /**
-   * Calls {@link ParallelBuffered#createListeners}
-   * @param {Runner} runner
+   * Retained list of events emitted from the {@link Runner} instance.
+   * @public
    */
-  constructor(runner, opts) {
+  events: InstanceType<typeof SerializableEvent>[];
+
+  /**
+   * Map of `Runner` event names to listeners (for later teardown)
+   * @public
+   */
+  listeners: Map<string, EventListener>;
+
+  /**
+   * Calls {@link ParallelBuffered#createListeners}
+   */
+  constructor(runner: RunnerLike, opts?: Record<string, unknown>) {
     super(runner, opts);
 
-    /**
-     * Retained list of events emitted from the {@link Runner} instance.
-     * @type {BufferedEvent[]}
-     * @public
-     */
     this.events = [];
-
-    /**
-     * Map of `Runner` event names to listeners (for later teardown)
-     * @public
-     * @type {Map<string,EventListener>}
-     */
     this.listeners = new Map();
 
     this.createListeners(runner);
@@ -101,16 +108,22 @@ class ParallelBuffered extends Base {
    * associated with this reporter.
    *
    * Subclasses could override this behavior.
-   *
    * @public
-   * @param {string} eventName - Name of event to create listener for
-   * @returns {EventListener}
    */
-  createListener(eventName) {
-    const listener = (runnable, err) => {
-      this.events.push(SerializableEvent.create(eventName, runnable, err));
+  createListener(eventName: string): EventListener {
+    const listener: EventListener = (
+      runnable: unknown,
+      err: unknown,
+    ): void => {
+      this.events.push(
+        SerializableEvent.create(
+          eventName,
+          runnable as Record<string, unknown> | undefined,
+          err as Error | undefined,
+        ),
+      );
     };
-    return this.listeners.set(eventName, listener).get(eventName);
+    return this.listeners.set(eventName, listener).get(eventName)!;
   }
 
   /**
@@ -120,21 +133,18 @@ class ParallelBuffered extends Base {
    *
    * Subclasses could override this behavior.
    * @public
-   * @param {Runner} runner - Runner instance
-   * @returns {ParallelBuffered}
-   * @chainable
    */
-  createListeners(runner) {
-    EVENT_NAMES.forEach((evt) => {
+  createListeners(runner: RunnerLike): this {
+    EVENT_NAMES.forEach((evt: string) => {
       runner.on(evt, this.createListener(evt));
     });
-    ONCE_EVENT_NAMES.forEach((evt) => {
+    ONCE_EVENT_NAMES.forEach((evt: string) => {
       runner.once(evt, this.createListener(evt));
     });
 
     runner.once(EVENT_RUN_END, () => {
       debug("received EVENT_RUN_END");
-      this.listeners.forEach((listener, evt) => {
+      this.listeners.forEach((listener: EventListener, evt: string) => {
         runner.removeListener(evt, listener);
         this.listeners.delete(evt);
       });
@@ -150,12 +160,12 @@ class ParallelBuffered extends Base {
    * This is called directly by `Runner#run` and should not be called by any other consumer.
    *
    * Subclasses could override this.
-   *
-   * @param {number} failures - Number of failed tests
-   * @param {Function} callback - The callback passed to {@link Mocha#run}.
    * @public
    */
-  done(failures, callback) {
+  done(
+    failures: number,
+    callback: (result: InstanceType<typeof SerializableWorkerResult>) => void,
+  ): void {
     callback(SerializableWorkerResult.create(this.events, failures));
     this.events = []; // defensive
   }

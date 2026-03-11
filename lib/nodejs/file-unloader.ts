@@ -8,8 +8,7 @@
 
 /**
  * Deletes a file from the `require` cache.
- * @param {string} file - File
  */
-exports.unloadFile = (file) => {
+exports.unloadFile = (file: string): void => {
   delete require.cache[require.resolve(file)];
 };
