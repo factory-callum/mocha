@@ -6,32 +6,123 @@
  * MIT Licensed
  */
 
-var escapeRe = require("escape-string-regexp");
-var path = require("node:path");
-var builtinReporters = require("./reporters");
-var utils = require("./utils");
-var mocharc = require("./mocharc.json");
-var Suite = require("./suite");
-var esmUtils = require("./nodejs/esm-utils");
-var createStatsCollector = require("./stats-collector");
+import type {
+  DoneCB,
+  MochaGlobalFixture,
+  MochaOptions,
+  MochaRootHookObject,
+} from "./types.d.ts";
+
+const escapeRe: (str: string) => string = require("escape-string-regexp");
+const path: typeof import("node:path") = require("node:path");
+const builtinReporters: Record<string, unknown> & {
+  Base: { useColors?: boolean; inlineDiffs?: boolean; hideDiff?: boolean };
+  base: unknown;
+} = require("./reporters");
+const utils: {
+  defineConstants: <T extends Record<string, string>>(obj: T) => Readonly<T>;
+  isBrowser: () => boolean;
+  cwd: () => string;
+  isString: (obj: unknown) => obj is string;
+  noop: () => void;
+  castArray: <T>(val: T | T[]) => T[];
+  stackTraceFilter: () => (stack: string) => string;
+  stringify: (value: unknown) => string;
+  [key: string]: unknown;
+} = require("./utils");
+const mocharc: Record<string, unknown> = require("./mocharc.json");
+const Suite: {
+  new (
+    title: string,
+    parentContext: unknown,
+    isRoot?: boolean,
+  ): SuiteInstance;
+  constants: Record<string, string>;
+} = require("./suite");
+const esmUtils: {
+  loadFilesAsync: (
+    files: string[],
+    preRequire: (file: string) => void,
+    postRequire: (file: string, resultModule: unknown) => void,
+    esmDecorator?: (name: string) => string,
+  ) => Promise<void>;
+} = require("./nodejs/esm-utils");
+const createStatsCollector: (runner: unknown) => void =
+  require("./stats-collector");
 const {
   createInvalidReporterError,
   createInvalidInterfaceError,
   createMochaInstanceAlreadyDisposedError,
   createMochaInstanceAlreadyRunningError,
   createUnsupportedError,
+}: {
+  createInvalidReporterError: (message: string, reporter: string) => Error;
+  createInvalidInterfaceError: (message: string, ui: string) => Error;
+  createMochaInstanceAlreadyDisposedError: (
+    message: string,
+    cleanReferencesAfterRun: boolean,
+    instance: Mocha,
+  ) => Error;
+  createMochaInstanceAlreadyRunningError: (
+    message: string,
+    instance?: Mocha,
+  ) => Error;
+  createUnsupportedError: (message: string) => Error;
 } = require("./errors");
-const { EVENT_FILE_PRE_REQUIRE, EVENT_FILE_POST_REQUIRE, EVENT_FILE_REQUIRE } =
-  Suite.constants;
-var debug = require("debug")("mocha:mocha");
+const {
+  EVENT_FILE_PRE_REQUIRE,
+  EVENT_FILE_POST_REQUIRE,
+  EVENT_FILE_REQUIRE,
+}: Record<string, string> = Suite.constants;
+const debug: (...args: unknown[]) => void = require("debug")("mocha:mocha");
 
-/**
- * @typedef {import('./types.d.ts').DoneCB} DoneCB
- * @typedef {import('./types.d.ts').MochaGlobalFixture} MochaGlobalFixture
- * @typedef {import('./types.d.ts').MochaOptions} MochaOptions
- * @typedef {import('./types.d.ts').MochaRootHookObject} MochaRootHookObject
- * @typedef {import('./types.d.ts').Reporter} Reporter
- */
+/** Hook function type */
+type HookFn = (...args: unknown[]) => unknown;
+
+/** Interface for a Suite instance */
+interface SuiteInstance {
+  bail(bail: boolean): void;
+  slow(ms: number | string): void;
+  timeout(ms: number | string): void;
+  retries(n: number): void;
+  emit(event: string, ...args: unknown[]): void;
+  on(event: string, fn: (...args: unknown[]) => void): void;
+  dispose(): void;
+  reset(): void;
+  beforeAll(fn: HookFn): void;
+  beforeEach(fn: HookFn): void;
+  afterAll(fn: HookFn): void;
+  afterEach(fn: HookFn): void;
+  [key: string]: unknown;
+}
+
+/** Interface for a Runner-like instance */
+interface RunnerInstance {
+  runAsync(opts: { files: string[]; options: MochaOptions & Record<string, unknown> }): Promise<number>;
+  globals(globals: string[]): void;
+  grep(re: RegExp, invert?: boolean): void;
+  dispose(): void;
+  checkLeaks: boolean;
+  fullStackTrace: boolean;
+  asyncOnly: boolean;
+  allowUncaught: boolean;
+  forbidOnly: boolean;
+  forbidPending: boolean;
+  stats: unknown;
+  [key: string]: unknown;
+}
+
+/** Interface for a Reporter instance */
+interface ReporterInstance {
+  done?: (failures: number, fn: DoneCB) => void;
+  [key: string]: unknown;
+}
+
+/** Runner constructor type */
+interface RunnerConstructor {
+  new (suite: SuiteInstance, options: Record<string, unknown>): RunnerInstance;
+  constants: Record<string, string>;
+}
 
 exports = module.exports = Mocha;
 
@@ -40,7 +131,12 @@ exports = module.exports = Mocha;
  * These are the states it can be in.
  * @private
  */
-var mochaStates = utils.defineConstants({
+const mochaStates: Readonly<{
+  INIT: string;
+  RUNNING: string;
+  REFERENCES_CLEANED: string;
+  DISPOSED: string;
+}> = utils.defineConstants({
   /**
    * Initial state of the mocha instance
    * @private
@@ -69,8 +165,8 @@ var mochaStates = utils.defineConstants({
  */
 
 if (!utils.isBrowser() && typeof module.paths !== "undefined") {
-  var cwd = utils.cwd();
-  module.paths.push(cwd, path.join(cwd, "node_modules"));
+  const cwdPath: string = utils.cwd();
+  module.paths.push(cwdPath, path.join(cwdPath, "node_modules"));
 }
 
 /**
@@ -96,47 +192,54 @@ exports.Suite = Suite;
 exports.Hook = require("./hook");
 exports.Test = require("./test");
 
-let currentContext;
-exports.afterEach = function (...args) {
+/** Interface for context functions that have .only and .skip */
+interface ContextFunction {
+  (...args: unknown[]): unknown;
+  only: (...args: unknown[]) => unknown;
+  skip: (...args: unknown[]) => unknown;
+}
+
+let currentContext: Record<string, ContextFunction>;
+exports.afterEach = function (...args: unknown[]): unknown {
   return (currentContext.afterEach || currentContext.teardown).apply(
     this,
     args,
   );
 };
-exports.after = function (...args) {
+exports.after = function (...args: unknown[]): unknown {
   return (currentContext.after || currentContext.suiteTeardown).apply(
     this,
     args,
   );
 };
-exports.beforeEach = function (...args) {
+exports.beforeEach = function (...args: unknown[]): unknown {
   return (currentContext.beforeEach || currentContext.setup).apply(this, args);
 };
-exports.before = function (...args) {
+exports.before = function (...args: unknown[]): unknown {
   return (currentContext.before || currentContext.suiteSetup).apply(this, args);
 };
-exports.describe = function (...args) {
+exports.describe = function (...args: unknown[]): unknown {
   return (currentContext.describe || currentContext.suite).apply(this, args);
 };
-exports.describe.only = function (...args) {
+exports.describe.only = function (...args: unknown[]): unknown {
   return (currentContext.describe || currentContext.suite).only.apply(
     this,
     args,
   );
 };
-exports.describe.skip = function (...args) {
+exports.describe.skip = function (...args: unknown[]): unknown {
   return (currentContext.describe || currentContext.suite).skip.apply(
     this,
     args,
   );
 };
-exports.it = function (...args) {
+exports.it = function (...args: unknown[]): unknown {
   return (currentContext.it || currentContext.test).apply(this, args);
 };
-exports.it.only = function (...args) {
+exports.it.only = function (...args: unknown[]): unknown {
   return (currentContext.it || currentContext.test).only.apply(this, args);
 };
-exports.it.skip = function (...args) {
+exports.it.skip = function (...args: unknown[]): unknown {
   return (currentContext.it || currentContext.test).skip.apply(this, args);
 };
 exports.xdescribe = exports.describe.skip;
@@ -147,7 +250,7 @@ exports.suiteTeardown = exports.after;
 exports.suite = exports.describe;
 exports.teardown = exports.afterEach;
 exports.test = exports.it;
-exports.run = function (...args) {
+exports.run = function (...args: unknown[]): unknown {
   return currentContext.run.apply(this, args);
 };
 
@@ -156,57 +259,70 @@ exports.run = function (...args) {
  *
  * @public
  * @class Mocha
- * @param {MochaOptions} [options] - Settings object.
+ * @param options - Settings object.
  */
-function Mocha(options = {}) {
+function Mocha(
+  this: Mocha,
+  options: MochaOptions & Record<string, unknown> = {},
+): void {
   options = { ...mocharc, ...options };
   this.files = [];
   this.options = options;
   // root suite
-  this.suite = new exports.Suite("", new exports.Context(), true);
+  this.suite = new (exports as { Suite: typeof Suite; Context: new () => unknown }).Suite(
+    "",
+    new (exports as { Suite: typeof Suite; Context: new () => unknown }).Context(),
+    true,
+  );
   this._cleanReferencesAfterRun = true;
   this._state = mochaStates.INIT;
 
   this.grep(options.grep)
-    .fgrep(options.fgrep)
+    .fgrep(options.fgrep as string | undefined)
     .ui(options.ui)
     .reporter(
-      options.reporter,
-      options["reporter-option"] ||
+      options.reporter as string | ((...args: unknown[]) => unknown) | undefined,
+      (options["reporter-option"] as object | undefined) ||
         options.reporterOption ||
-        options.reporterOptions, // for backwards compatibility
+        (options.reporterOptions as object | undefined), // for backwards compatibility
     )
     .slow(options.slow)
     .global(options.global);
 
   // this guard exists because Suite#timeout does not consider `undefined` to be valid input
   if (typeof options.timeout !== "undefined") {
-    this.timeout(options.timeout === false ? 0 : options.timeout);
+    this.timeout(
+      (options as Record<string, unknown>).timeout === false
+        ? 0
+        : options.timeout!,
+    );
   }
 
   if ("retries" in options) {
-    this.retries(options.retries);
+    this.retries(options.retries as number);
   }
 
-  [
-    "allowUncaught",
-    "asyncOnly",
-    "bail",
-    "checkLeaks",
-    "color",
-    "delay",
-    "diff",
-    "dryRun",
-    "passOnFailingTestSuite",
-    "failZero",
-    "forbidOnly",
-    "forbidPending",
-    "fullTrace",
-    "inlineDiffs",
-    "invert",
-  ].forEach(function (opt) {
-    if (options[opt]) {
-      this[opt]();
+  (
+    [
+      "allowUncaught",
+      "asyncOnly",
+      "bail",
+      "checkLeaks",
+      "color",
+      "delay",
+      "diff",
+      "dryRun",
+      "passOnFailingTestSuite",
+      "failZero",
+      "forbidOnly",
+      "forbidPending",
+      "fullTrace",
+      "inlineDiffs",
+      "invert",
+    ] as const
+  ).forEach(function (this: Mocha, opt: string) {
+    if ((options as Record<string, unknown>)[opt]) {
+      (this as unknown as Record<string, () => void>)[opt]();
     }
   }, this);
 
@@ -239,18 +355,81 @@ function Mocha(options = {}) {
    */
   this.isWorker = Boolean(options.isWorker);
 
-  this.globalSetup(options.globalSetup)
-    .globalTeardown(options.globalTeardown)
-    .enableGlobalSetup(options.enableGlobalSetup)
-    .enableGlobalTeardown(options.enableGlobalTeardown);
+  this.globalSetup(options.globalSetup as MochaGlobalFixture | MochaGlobalFixture[] | undefined)
+    .globalTeardown(options.globalTeardown as MochaGlobalFixture | MochaGlobalFixture[] | undefined)
+    .enableGlobalSetup(options.enableGlobalSetup as boolean | undefined)
+    .enableGlobalTeardown(options.enableGlobalTeardown as boolean | undefined);
 
   if (
     options.parallel &&
-    (typeof options.jobs === "undefined" || options.jobs > 1)
+    (typeof options.jobs === "undefined" || (options.jobs as number) > 1)
   ) {
     debug("attempting to enable parallel mode");
     this.parallelMode(true);
   }
+}
+
+/** Mocha instance interface */
+interface Mocha {
+  files: string[];
+  options: MochaOptions & Record<string, unknown>;
+  suite: SuiteInstance;
+  _cleanReferencesAfterRun: boolean;
+  _state: string;
+  _runnerClass: RunnerConstructor;
+  _lazyLoadFiles: boolean;
+  _previousRunner?: RunnerInstance;
+  _reporter: (new (runner: RunnerInstance, options: unknown) => ReporterInstance) | ((...args: unknown[]) => unknown);
+  isWorker: boolean;
+
+  bail(bail?: boolean): Mocha;
+  addFile(file: string): Mocha;
+  reporter(reporterName?: string | ((...args: unknown[]) => unknown), reporterOptions?: object): Mocha;
+  ui(ui?: string | ((...args: unknown[]) => unknown)): Mocha;
+  loadFiles(fn?: () => void): void;
+  loadFilesAsync(options?: { esmDecorator?: (name: string) => string }): Promise<void>;
+  unloadFiles(): Mocha;
+  fgrep(str?: string): Mocha;
+  grep(re?: RegExp | string): Mocha;
+  invert(): Mocha;
+  checkLeaks(checkLeaks?: boolean): Mocha;
+  cleanReferencesAfterRun(cleanReferencesAfterRun?: boolean): Mocha;
+  dispose(): void;
+  fullTrace(fullTrace?: boolean): Mocha;
+  global(global?: string[] | string): Mocha;
+  globals(global?: string[] | string): Mocha;
+  color(color?: boolean): Mocha;
+  inlineDiffs(inlineDiffs?: boolean): Mocha;
+  diff(diff?: boolean): Mocha;
+  timeout(msecs?: number | string): Mocha;
+  retries(retry?: number): Mocha;
+  slow(msecs?: number | string): Mocha;
+  asyncOnly(asyncOnly?: boolean): Mocha;
+  noHighlighting(): Mocha;
+  allowUncaught(allowUncaught?: boolean): Mocha;
+  delay(): Mocha;
+  dryRun(dryRun?: boolean): Mocha;
+  failHookAffectedTests(failHookAffectedTests?: boolean): Mocha;
+  failZero(failZero?: boolean): Mocha;
+  passOnFailingTestSuite(passOnFailingTestSuite?: boolean): Mocha;
+  forbidOnly(forbidOnly?: boolean): Mocha;
+  forbidPending(forbidPending?: boolean): Mocha;
+  _guardRunningStateTransition(): void;
+  version: string;
+  run(fn?: DoneCB): RunnerInstance;
+  rootHooks(hooks?: MochaRootHookObject): Mocha;
+  parallelMode(enable?: boolean): Mocha;
+  lazyLoadFiles(enable?: boolean): Mocha;
+  globalSetup(setupFns?: MochaGlobalFixture | MochaGlobalFixture[]): Mocha;
+  globalTeardown(teardownFns?: MochaGlobalFixture | MochaGlobalFixture[]): Mocha;
+  runGlobalSetup(context?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  runGlobalTeardown(context?: Record<string, unknown>, opts?: { context?: Record<string, unknown> }): Promise<Record<string, unknown>>;
+  _runGlobalFixtures(fixtureFns?: MochaGlobalFixture[], context?: Record<string, unknown>): Promise<Record<string, unknown>>;
+  enableGlobalSetup(enabled?: boolean): Mocha;
+  enableGlobalTeardown(enabled?: boolean): Mocha;
+  hasGlobalSetupFixtures(): boolean;
+  hasGlobalTeardownFixtures(): boolean;
+  [key: string]: unknown;
 }
 
 /**
@@ -258,29 +437,27 @@ function Mocha(options = {}) {
  *
  * @public
  * @see [CLI option](../#-bail-b)
- * @param {boolean} [bail=true] - Whether to bail on first error.
- * @returns {Mocha} this
+ * @param bail - Whether to bail on first error.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.bail = function (bail) {
+Mocha.prototype.bail = function (this: Mocha, bail?: boolean): Mocha {
   this.suite.bail(bail !== false);
   return this;
 };
 
 /**
- * @summary
  * Adds `file` to be loaded for execution.
  *
- * @description
  * Useful for generic setup code that must be included within test suite.
  *
  * @public
  * @see [CLI option](../#-file-filedirectoryglob)
- * @param {string} file - Pathname of file to be loaded.
- * @returns {Mocha} this
+ * @param file - Pathname of file to be loaded.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.addFile = function (file) {
+Mocha.prototype.addFile = function (this: Mocha, file: string): Mocha {
   this.files.push(file);
   return this;
 };
@@ -291,49 +468,59 @@ Mocha.prototype.addFile = function (file) {
  * @public
  * @see [CLI option](../#-reporter-name-r-name)
  * @see [Reporters](../#reporters)
- * @param {String|Reporter} reporterName - Reporter name or constructor.
- * @param {Object} [reporterOptions] - Options used to configure the reporter.
- * @returns {Mocha} this
+ * @param reporterName - Reporter name or constructor.
+ * @param reporterOptions - Options used to configure the reporter.
+ * @returns this
  * @chainable
  * @throws {Error} if requested reporter cannot be loaded
- * @example
  *
+ * @example
  * // Use XUnit reporter and direct its output to file
  * mocha.reporter('xunit', { output: '/path/to/testspec.xunit.xml' });
  */
-Mocha.prototype.reporter = function (reporterName, reporterOptions) {
+Mocha.prototype.reporter = function (
+  this: Mocha,
+  reporterName?: string | ((...args: unknown[]) => unknown),
+  reporterOptions?: object,
+): Mocha {
   if (typeof reporterName === "function") {
     this._reporter = reporterName;
   } else {
     reporterName = reporterName || "spec";
-    var reporter;
+    let reporter: unknown;
     // Try to load a built-in reporter.
-    if (builtinReporters[reporterName]) {
-      reporter = builtinReporters[reporterName];
+    if ((builtinReporters as Record<string, unknown>)[reporterName]) {
+      reporter = (builtinReporters as Record<string, unknown>)[reporterName];
     }
     // Try to load reporters from process.cwd() and node_modules
     if (!reporter) {
-      let foundReporter;
+      let foundReporter: string | undefined;
       try {
         foundReporter = require.resolve(reporterName);
         reporter = require(foundReporter);
-      } catch (err) {
+      } catch (err: unknown) {
         if (foundReporter) {
-          throw createInvalidReporterError(err.message, foundReporter);
+          throw createInvalidReporterError(
+            (err as Error).message,
+            foundReporter,
+          );
         }
         // Try to load reporters from a cwd-relative path
         try {
           reporter = require(path.resolve(reporterName));
-        } catch (err) {
-          throw createInvalidReporterError(err.message, reporterName);
+        } catch (err: unknown) {
+          throw createInvalidReporterError(
+            (err as Error).message,
+            reporterName,
+          );
         }
       }
     }
-    if (reporter.default) {
-      reporter = reporter.default;
+    if ((reporter as Record<string, unknown>).default) {
+      reporter = (reporter as Record<string, unknown>).default;
     }
 
-    this._reporter = reporter;
+    this._reporter = reporter as Mocha["_reporter"];
   }
   this.options.reporterOption = reporterOptions;
   // alias option name is used in built-in reporters xunit/tap/progress
@@ -347,18 +534,26 @@ Mocha.prototype.reporter = function (reporterName, reporterOptions) {
  * @public
  * @see [CLI option](../#-ui-name-u-name)
  * @see [Interface DSLs](../#interfaces)
- * @param {string|Function} [ui=bdd] - Interface name or class.
- * @returns {Mocha} this
+ * @param ui - Interface name or class.
+ * @returns this
  * @chainable
  * @throws {Error} if requested interface cannot be loaded
  */
-Mocha.prototype.ui = function (ui) {
-  var bindInterface;
+Mocha.prototype.ui = function (
+  this: Mocha,
+  ui?: string | ((...args: unknown[]) => unknown),
+): Mocha {
+  let bindInterface: (...args: unknown[]) => unknown;
   if (typeof ui === "function") {
     bindInterface = ui;
   } else {
     ui = ui || "bdd";
-    bindInterface = exports.interfaces[ui];
+    bindInterface = (
+      exports as Record<
+        string,
+        Record<string, (...args: unknown[]) => unknown>
+      >
+    ).interfaces[ui];
     if (!bindInterface) {
       try {
         bindInterface = require(ui);
@@ -367,15 +562,23 @@ Mocha.prototype.ui = function (ui) {
       }
     }
   }
-  if (bindInterface.default) {
-    bindInterface = bindInterface.default;
+  if ((bindInterface as unknown as Record<string, unknown>).default) {
+    bindInterface = (
+      bindInterface as unknown as Record<
+        string,
+        (...args: unknown[]) => unknown
+      >
+    ).default;
   }
 
   bindInterface(this.suite);
 
-  this.suite.on(EVENT_FILE_PRE_REQUIRE, function (context) {
-    currentContext = context;
-  });
+  this.suite.on(
+    EVENT_FILE_PRE_REQUIRE,
+    function (context: unknown) {
+      currentContext = context as Record<string, ContextFunction>;
+    },
+  );
 
   return this;
 };
@@ -383,7 +586,6 @@ Mocha.prototype.ui = function (ui) {
 /**
  * Loads `files` prior to execution. Does not support ES Modules.
  *
- * @description
  * The implementation relies on Node's `require` to execute
  * the test interface functions and will be subject to its cache.
  * Supports only CommonJS modules. To load ES modules, use Mocha#loadFilesAsync.
@@ -393,24 +595,25 @@ Mocha.prototype.ui = function (ui) {
  * @see {@link Mocha#run}
  * @see {@link Mocha#unloadFiles}
  * @see {@link Mocha#loadFilesAsync}
- * @param {Function} [fn] - Callback invoked upon completion.
+ * @param fn - Callback invoked upon completion.
  */
-Mocha.prototype.loadFiles = function (fn) {
-  var self = this;
-  var suite = this.suite;
-  this.files.forEach(function (file) {
+Mocha.prototype.loadFiles = function (this: Mocha, fn?: () => void): void {
+  const self = this;
+  const suite = this.suite;
+  this.files.forEach(function (file: string) {
     file = path.resolve(file);
     suite.emit(EVENT_FILE_PRE_REQUIRE, global, file, self);
     suite.emit(EVENT_FILE_REQUIRE, require(file), file, self);
     suite.emit(EVENT_FILE_POST_REQUIRE, global, file, self);
   });
-  fn && fn();
+  if (fn) {
+    fn();
+  }
 };
 
 /**
  * Loads `files` prior to execution. Supports Node ES Modules.
  *
- * @description
  * The implementation relies on Node's `require` and `import` to execute
  * the test interface functions and will be subject to its cache.
  * Supports both CJS and ESM modules.
@@ -419,27 +622,30 @@ Mocha.prototype.loadFiles = function (fn) {
  * @see {@link Mocha#addFile}
  * @see {@link Mocha#run}
  * @see {@link Mocha#unloadFiles}
- * @param {Object} [options] - Settings object.
- * @param {Function} [options.esmDecorator] - Function invoked on esm module name right before importing it. By default will passthrough as is.
- * @returns {Promise}
- * @example
+ * @param options - Settings object.
+ * @param options.esmDecorator - Function invoked on esm module name right before importing it.
+ * @returns Promise
  *
+ * @example
  * // loads ESM (and CJS) test files asynchronously, then runs root suite
  * mocha.loadFilesAsync()
  *   .then(() => mocha.run(failures => process.exitCode = failures ? 1 : 0))
  *   .catch(() => process.exitCode = 1);
  */
-Mocha.prototype.loadFilesAsync = function ({ esmDecorator } = {}) {
-  var self = this;
-  var suite = this.suite;
+Mocha.prototype.loadFilesAsync = function (
+  this: Mocha,
+  { esmDecorator }: { esmDecorator?: (name: string) => string } = {},
+): Promise<void> {
+  const self = this;
+  const suite = this.suite;
   this.lazyLoadFiles(true);
 
   return esmUtils.loadFilesAsync(
     this.files,
-    function (file) {
+    function (file: string) {
       suite.emit(EVENT_FILE_PRE_REQUIRE, global, file, self);
     },
-    function (file, resultModule) {
+    function (file: string, resultModule: unknown) {
       suite.emit(EVENT_FILE_REQUIRE, resultModule, file, self);
       suite.emit(EVENT_FILE_POST_REQUIRE, global, file, self);
     },
@@ -453,9 +659,9 @@ Mocha.prototype.loadFilesAsync = function ({ esmDecorator } = {}) {
  * @private
  * @static
  * @see {@link Mocha#unloadFiles}
- * @param {string} file - Pathname of file to be unloaded.
+ * @param file - Pathname of file to be unloaded.
  */
-Mocha.unloadFile = function (file) {
+Mocha.unloadFile = function (file: string): void {
   if (utils.isBrowser()) {
     throw createUnsupportedError(
       "unloadFile() is only supported in a Node.js environment",
@@ -467,7 +673,6 @@ Mocha.unloadFile = function (file) {
 /**
  * Unloads `files` from Node's `require` cache.
  *
- * @description
  * This allows required files to be "freshly" reloaded, providing the ability
  * to reuse a Mocha instance programmatically.
  * Note: does not clear ESM module files from the cache
@@ -476,10 +681,10 @@ Mocha.unloadFile = function (file) {
  *
  * @public
  * @see {@link Mocha#run}
- * @returns {Mocha} this
+ * @returns this
  * @chainable
  */
-Mocha.prototype.unloadFiles = function () {
+Mocha.prototype.unloadFiles = function (this: Mocha): Mocha {
   if (this._state === mochaStates.DISPOSED) {
     throw createMochaInstanceAlreadyDisposedError(
       "Mocha instance is already disposed, it cannot be used again.",
@@ -488,7 +693,7 @@ Mocha.prototype.unloadFiles = function () {
     );
   }
 
-  this.files.forEach(function (file) {
+  this.files.forEach(function (file: string) {
     Mocha.unloadFile(file);
   });
   this._state = mochaStates.INIT;
@@ -500,15 +705,15 @@ Mocha.prototype.unloadFiles = function () {
  *
  * @public
  * @see {@link Mocha#grep}
- * @param {string} str - Value to be converted to a regexp.
- * @returns {Mocha} this
+ * @param str - Value to be converted to a regexp.
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Select tests whose full title begins with `"foo"` followed by a period
  * mocha.fgrep('foo.');
  */
-Mocha.prototype.fgrep = function (str) {
+Mocha.prototype.fgrep = function (this: Mocha, str?: string): Mocha {
   if (!str) {
     return this;
   }
@@ -516,10 +721,8 @@ Mocha.prototype.fgrep = function (str) {
 };
 
 /**
- * @summary
  * Sets `grep` filter used to select specific tests for execution.
  *
- * @description
  * If `re` is a regexp-like string, it will be converted to regexp.
  * The regexp is tested against the full title of each test (i.e., the
  * name of the test preceded by titles of each its ancestral suites).
@@ -532,27 +735,25 @@ Mocha.prototype.fgrep = function (str) {
  * @see [CLI option](../#-grep-regexp-g-regexp)
  * @see {@link Mocha#fgrep}
  * @see {@link Mocha#invert}
- * @param {RegExp|String} re - Regular expression used to select tests.
- * @return {Mocha} this
+ * @param re - Regular expression used to select tests.
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Select tests whose full title contains `"match"`, ignoring case
  * mocha.grep(/match/i);
- * @example
  *
+ * @example
  * // Same as above but with regexp-like string argument
  * mocha.grep('/match/i');
- * @example
- *
- * // ## Anti-example
- * // Given embedded test `it('only-this-test')`...
- * mocha.grep('/^only-this-test$/');    // NO! Use `.only()` to do this!
  */
-Mocha.prototype.grep = function (re) {
+Mocha.prototype.grep = function (
+  this: Mocha,
+  re?: RegExp | string,
+): Mocha {
   if (utils.isString(re)) {
     // extract args if it's regex-like, i.e: [string, pattern, flag]
-    var arg = re.match(/^\/(.*)\/([gimy]{0,4})$|.*/);
+    const arg: RegExpMatchArray = re.match(/^\/(.*)\/([gimy]{0,4})$|.*/)!;
     this.options.grep = new RegExp(arg[1] || arg[0], arg[2]);
   } else {
     this.options.grep = re;
@@ -565,14 +766,14 @@ Mocha.prototype.grep = function (re) {
  *
  * @public
  * @see {@link Mocha#grep}
- * @return {Mocha} this
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Select tests whose full title does *not* contain `"match"`, ignoring case
  * mocha.grep(/match/i).invert();
  */
-Mocha.prototype.invert = function () {
+Mocha.prototype.invert = function (this: Mocha): Mocha {
   this.options.invert = true;
   return this;
 };
@@ -582,11 +783,14 @@ Mocha.prototype.invert = function () {
  *
  * @public
  * @see [CLI option](../#-check-leaks)
- * @param {boolean} [checkLeaks=true] - Whether to check for global variable leaks.
- * @return {Mocha} this
+ * @param checkLeaks - Whether to check for global variable leaks.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.checkLeaks = function (checkLeaks) {
+Mocha.prototype.checkLeaks = function (
+  this: Mocha,
+  checkLeaks?: boolean,
+): Mocha {
   this.options.checkLeaks = checkLeaks !== false;
   return this;
 };
@@ -597,11 +801,14 @@ Mocha.prototype.checkLeaks = function (checkLeaks) {
  * If disabled, be sure to dispose mocha when you're done to prevent memory leaks.
  * @public
  * @see {@link Mocha#dispose}
- * @param {boolean} cleanReferencesAfterRun
- * @return {Mocha} this
+ * @param cleanReferencesAfterRun
+ * @returns this
  * @chainable
  */
-Mocha.prototype.cleanReferencesAfterRun = function (cleanReferencesAfterRun) {
+Mocha.prototype.cleanReferencesAfterRun = function (
+  this: Mocha,
+  cleanReferencesAfterRun?: boolean,
+): Mocha {
   this._cleanReferencesAfterRun = cleanReferencesAfterRun !== false;
   return this;
 };
@@ -611,14 +818,16 @@ Mocha.prototype.cleanReferencesAfterRun = function (cleanReferencesAfterRun) {
  * It also removes function references to tests functions and hooks, so variables trapped in closures can be cleaned by the garbage collector.
  * @public
  */
-Mocha.prototype.dispose = function () {
+Mocha.prototype.dispose = function (this: Mocha): void {
   if (this._state === mochaStates.RUNNING) {
     throw createMochaInstanceAlreadyRunningError(
       "Cannot dispose while the mocha instance is still running tests.",
     );
   }
   this.unloadFiles();
-  this._previousRunner && this._previousRunner.dispose();
+  if (this._previousRunner) {
+    this._previousRunner.dispose();
+  }
   this.suite.dispose();
   this._state = mochaStates.DISPOSED;
 };
@@ -628,11 +837,14 @@ Mocha.prototype.dispose = function () {
  *
  * @public
  * @see [CLI option](../#-full-trace)
- * @param {boolean} [fullTrace=true] - Whether to print full stacktrace upon failure.
- * @return {Mocha} this
+ * @param fullTrace - Whether to print full stacktrace upon failure.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.fullTrace = function (fullTrace) {
+Mocha.prototype.fullTrace = function (
+  this: Mocha,
+  fullTrace?: boolean,
+): Mocha {
   this.options.fullTrace = fullTrace !== false;
   return this;
 };
@@ -643,19 +855,22 @@ Mocha.prototype.fullTrace = function (fullTrace) {
  * @public
  * @see [CLI option](../#-global-variable-name)
  * @see {@link Mocha#checkLeaks}
- * @param {String[]|String} global - Accepted global variable name(s).
- * @return {Mocha} this
+ * @param global - Accepted global variable name(s).
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Specify variables to be expected in global scope
  * mocha.global(['jQuery', 'MyLib']);
  */
-Mocha.prototype.global = function (global) {
-  this.options.global = (this.options.global || [])
-    .concat(global)
+Mocha.prototype.global = function (
+  this: Mocha,
+  global?: string[] | string,
+): Mocha {
+  this.options.global = ((this.options.global || []) as string[])
+    .concat(global as string | string[])
     .filter(Boolean)
-    .filter(function (elt, idx, arr) {
+    .filter(function (elt: string, idx: number, arr: string[]) {
       return arr.indexOf(elt) === idx;
     });
   return this;
@@ -668,11 +883,11 @@ Mocha.prototype.globals = Mocha.prototype.global;
  *
  * @public
  * @see [CLI option](../#-color-c-colors)
- * @param {boolean} [color=true] - Whether to enable color output.
- * @return {Mocha} this
+ * @param color - Whether to enable color output.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.color = function (color) {
+Mocha.prototype.color = function (this: Mocha, color?: boolean): Mocha {
   this.options.color = color !== false;
   return this;
 };
@@ -683,11 +898,14 @@ Mocha.prototype.color = function (color) {
  *
  * @public
  * @see [CLI option](../#-inline-diffs)
- * @param {boolean} [inlineDiffs=true] - Whether to use inline diffs.
- * @return {Mocha} this
+ * @param inlineDiffs - Whether to use inline diffs.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.inlineDiffs = function (inlineDiffs) {
+Mocha.prototype.inlineDiffs = function (
+  this: Mocha,
+  inlineDiffs?: boolean,
+): Mocha {
   this.options.inlineDiffs = inlineDiffs !== false;
   return this;
 };
@@ -697,40 +915,41 @@ Mocha.prototype.inlineDiffs = function (inlineDiffs) {
  *
  * @public
  * @see [CLI option](../#-diff)
- * @param {boolean} [diff=true] - Whether to show diff on failure.
- * @return {Mocha} this
+ * @param diff - Whether to show diff on failure.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.diff = function (diff) {
+Mocha.prototype.diff = function (this: Mocha, diff?: boolean): Mocha {
   this.options.diff = diff !== false;
   return this;
 };
 
 /**
- * @summary
  * Sets timeout threshold value.
  *
- * @description
  * A string argument can use shorthand (such as "2s") and will be converted.
  * If the value is `0`, timeouts will be disabled.
  *
  * @public
  * @see [CLI option](../#-timeout-ms-t-ms)
  * @see [Timeouts](../#timeouts)
- * @param {number|string} msecs - Timeout threshold value.
- * @return {Mocha} this
+ * @param msecs - Timeout threshold value.
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Sets timeout to one second
  * mocha.timeout(1000);
- * @example
  *
+ * @example
  * // Same as above but using string argument
  * mocha.timeout('1s');
  */
-Mocha.prototype.timeout = function (msecs) {
-  this.suite.timeout(msecs);
+Mocha.prototype.timeout = function (
+  this: Mocha,
+  msecs?: number | string,
+): Mocha {
+  this.suite.timeout(msecs!);
   return this;
 };
 
@@ -740,16 +959,16 @@ Mocha.prototype.timeout = function (msecs) {
  * @public
  * @see [CLI option](../#-retries-n)
  * @see [Retry Tests](../#retry-tests)
- * @param {number} retry - Number of times to retry failed tests.
- * @return {Mocha} this
+ * @param retry - Number of times to retry failed tests.
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Allow any failed test to retry one more time
  * mocha.retries(1);
  */
-Mocha.prototype.retries = function (retry) {
-  this.suite.retries(retry);
+Mocha.prototype.retries = function (this: Mocha, retry?: number): Mocha {
+  this.suite.retries(retry!);
   return this;
 };
 
@@ -758,20 +977,23 @@ Mocha.prototype.retries = function (retry) {
  *
  * @public
  * @see [CLI option](../#-slow-ms-s-ms)
- * @param {number} msecs - Slowness threshold value.
- * @return {Mocha} this
+ * @param msecs - Slowness threshold value.
+ * @returns this
  * @chainable
- * @example
  *
+ * @example
  * // Sets "slow" threshold to half a second
  * mocha.slow(500);
- * @example
  *
+ * @example
  * // Same as above but using string argument
  * mocha.slow('0.5s');
  */
-Mocha.prototype.slow = function (msecs) {
-  this.suite.slow(msecs);
+Mocha.prototype.slow = function (
+  this: Mocha,
+  msecs?: number | string,
+): Mocha {
+  this.suite.slow(msecs!);
   return this;
 };
 
@@ -780,11 +1002,14 @@ Mocha.prototype.slow = function (msecs) {
  *
  * @public
  * @see [CLI option](../#-async-only-a)
- * @param {boolean} [asyncOnly=true] - Whether to force `done` callback or promise.
- * @return {Mocha} this
+ * @param asyncOnly - Whether to force `done` callback or promise.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.asyncOnly = function (asyncOnly) {
+Mocha.prototype.asyncOnly = function (
+  this: Mocha,
+  asyncOnly?: boolean,
+): Mocha {
   this.options.asyncOnly = asyncOnly !== false;
   return this;
 };
@@ -793,10 +1018,10 @@ Mocha.prototype.asyncOnly = function (asyncOnly) {
  * Disables syntax highlighting (in browser).
  *
  * @public
- * @return {Mocha} this
+ * @returns this
  * @chainable
  */
-Mocha.prototype.noHighlighting = function () {
+Mocha.prototype.noHighlighting = function (this: Mocha): Mocha {
   this.options.noHighlighting = true;
   return this;
 };
@@ -806,28 +1031,29 @@ Mocha.prototype.noHighlighting = function () {
  *
  * @public
  * @see [CLI option](../#-allow-uncaught)
- * @param {boolean} [allowUncaught=true] - Whether to propagate uncaught errors.
- * @return {Mocha} this
+ * @param allowUncaught - Whether to propagate uncaught errors.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.allowUncaught = function (allowUncaught) {
+Mocha.prototype.allowUncaught = function (
+  this: Mocha,
+  allowUncaught?: boolean,
+): Mocha {
   this.options.allowUncaught = allowUncaught !== false;
   return this;
 };
 
 /**
- * @summary
  * Delays root suite execution.
  *
- * @description
  * Used to perform async operations before any suites are run.
  *
  * @public
  * @see [delayed root suite](../#delayed-root-suite)
- * @returns {Mocha} this
+ * @returns this
  * @chainable
  */
-Mocha.prototype.delay = function delay() {
+Mocha.prototype.delay = function delay(this: Mocha): Mocha {
   this.options.delay = true;
   return this;
 };
@@ -837,11 +1063,11 @@ Mocha.prototype.delay = function delay() {
  *
  * @public
  * @see [CLI option](../#-dry-run)
- * @param {boolean} [dryRun=true] - Whether to activate dry-run mode.
- * @return {Mocha} this
+ * @param dryRun - Whether to activate dry-run mode.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.dryRun = function (dryRun) {
+Mocha.prototype.dryRun = function (this: Mocha, dryRun?: boolean): Mocha {
   this.options.dryRun = dryRun !== false;
   return this;
 };
@@ -851,11 +1077,14 @@ Mocha.prototype.dryRun = function (dryRun) {
  *
  * @public
  * @see [CLI option](../#-fail-hook-affected-tests)
- * @param {boolean} [failHookAffectedTests=true] - Whether to fail tests affected by hook failures.
- * @return {Mocha} this
+ * @param failHookAffectedTests - Whether to fail tests affected by hook failures.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.failHookAffectedTests = function (failHookAffectedTests) {
+Mocha.prototype.failHookAffectedTests = function (
+  this: Mocha,
+  failHookAffectedTests?: boolean,
+): Mocha {
   this.options.failHookAffectedTests = failHookAffectedTests !== false;
   return this;
 };
@@ -865,11 +1094,14 @@ Mocha.prototype.failHookAffectedTests = function (failHookAffectedTests) {
  *
  * @public
  * @see [CLI option](../#-fail-zero)
- * @param {boolean} [failZero=true] - Whether to fail test run.
- * @return {Mocha} this
+ * @param failZero - Whether to fail test run.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.failZero = function (failZero) {
+Mocha.prototype.failZero = function (
+  this: Mocha,
+  failZero?: boolean,
+): Mocha {
   this.options.failZero = failZero !== false;
   return this;
 };
@@ -879,11 +1111,14 @@ Mocha.prototype.failZero = function (failZero) {
  *
  * @public
  * @see [CLI option](../#-pass-on-failing-test-suite)
- * @param {boolean} [passOnFailingTestSuite=false] - Whether to fail test run.
- * @return {Mocha} this
+ * @param passOnFailingTestSuite - Whether to fail test run.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.passOnFailingTestSuite = function (passOnFailingTestSuite) {
+Mocha.prototype.passOnFailingTestSuite = function (
+  this: Mocha,
+  passOnFailingTestSuite?: boolean,
+): Mocha {
   this.options.passOnFailingTestSuite = passOnFailingTestSuite === true;
   return this;
 };
@@ -893,11 +1128,14 @@ Mocha.prototype.passOnFailingTestSuite = function (passOnFailingTestSuite) {
  *
  * @public
  * @see [CLI option](../#-forbid-only)
- * @param {boolean} [forbidOnly=true] - Whether tests marked `only` fail the suite.
- * @returns {Mocha} this
+ * @param forbidOnly - Whether tests marked `only` fail the suite.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.forbidOnly = function (forbidOnly) {
+Mocha.prototype.forbidOnly = function (
+  this: Mocha,
+  forbidOnly?: boolean,
+): Mocha {
   this.options.forbidOnly = forbidOnly !== false;
   return this;
 };
@@ -907,11 +1145,14 @@ Mocha.prototype.forbidOnly = function (forbidOnly) {
  *
  * @public
  * @see [CLI option](../#-forbid-pending)
- * @param {boolean} [forbidPending=true] - Whether pending tests fail the suite.
- * @returns {Mocha} this
+ * @param forbidPending - Whether pending tests fail the suite.
+ * @returns this
  * @chainable
  */
-Mocha.prototype.forbidPending = function (forbidPending) {
+Mocha.prototype.forbidPending = function (
+  this: Mocha,
+  forbidPending?: boolean,
+): Mocha {
   this.options.forbidPending = forbidPending !== false;
   return this;
 };
@@ -920,7 +1161,7 @@ Mocha.prototype.forbidPending = function (forbidPending) {
  * Throws an error if mocha is in the wrong state to be able to transition to a "running" state.
  * @private
  */
-Mocha.prototype._guardRunningStateTransition = function () {
+Mocha.prototype._guardRunningStateTransition = function (this: Mocha): void {
   if (this._state === mochaStates.RUNNING) {
     throw createMochaInstanceAlreadyRunningError(
       "Mocha instance is currently running tests, cannot start a next test run until this one is done",
@@ -956,22 +1197,21 @@ Object.defineProperty(Mocha.prototype, "version", {
 /**
  * Runs root suite and invokes `fn()` when complete.
  *
- * @description
  * To run tests multiple times (or to run tests in files that are
  * already in the `require` cache), make sure to clear them from
  * the cache first!
  *
  * @public
  * @see {@link Mocha#unloadFiles}
- * @see {@link Runner#run}
- * @param {DoneCB} [fn] - Callback invoked when test execution completed.
- * @returns {import("./runner.js")} runner instance
- * @example
+ * @see Runner#run
+ * @param fn - Callback invoked when test execution completed.
+ * @returns runner instance
  *
+ * @example
  * // exit with non-zero status if there were test failures
  * mocha.run(failures => process.exitCode = failures ? 1 : 0);
  */
-Mocha.prototype.run = function (fn) {
+Mocha.prototype.run = function (this: Mocha, fn?: DoneCB): RunnerInstance {
   this._guardRunningStateTransition();
   this._state = mochaStates.RUNNING;
   if (this._previousRunner) {
@@ -981,10 +1221,10 @@ Mocha.prototype.run = function (fn) {
   if (this.files.length && !this._lazyLoadFiles) {
     this.loadFiles();
   }
-  var suite = this.suite;
-  var options = this.options;
-  options.files = this.files;
-  const runner = new this._runnerClass(suite, {
+  const suite = this.suite;
+  const options = this.options;
+  (options as Record<string, unknown>).files = this.files;
+  const runner: RunnerInstance = new this._runnerClass(suite, {
     cleanReferencesAfterRun: this._cleanReferencesAfterRun,
     delay: options.delay,
     dryRun: options.dryRun,
@@ -992,13 +1232,16 @@ Mocha.prototype.run = function (fn) {
     failZero: options.failZero,
   });
   createStatsCollector(runner);
-  var reporter = new this._reporter(runner, options);
+  const reporter: ReporterInstance = new (this._reporter as new (
+    runner: RunnerInstance,
+    options: unknown,
+  ) => ReporterInstance)(runner, options);
   runner.checkLeaks = options.checkLeaks === true;
-  runner.fullStackTrace = options.fullTrace;
-  runner.asyncOnly = options.asyncOnly;
-  runner.allowUncaught = options.allowUncaught;
-  runner.forbidOnly = options.forbidOnly;
-  runner.forbidPending = options.forbidPending;
+  runner.fullStackTrace = options.fullTrace!;
+  runner.asyncOnly = options.asyncOnly!;
+  runner.allowUncaught = options.allowUncaught!;
+  runner.forbidOnly = options.forbidOnly!;
+  runner.forbidPending = options.forbidPending!;
   if (options.grep) {
     runner.grep(options.grep, options.invert);
   }
@@ -1011,7 +1254,7 @@ Mocha.prototype.run = function (fn) {
   exports.reporters.Base.inlineDiffs = options.inlineDiffs;
   exports.reporters.Base.hideDiff = !options.diff;
 
-  const done = (failures) => {
+  const done = (failures: number): void => {
     this._previousRunner = runner;
     this._state = this._cleanReferencesAfterRun
       ? mochaStates.REFERENCES_CLEANED
@@ -1024,17 +1267,17 @@ Mocha.prototype.run = function (fn) {
     }
   };
 
-  const runAsync = async (runner) => {
-    const context =
+  const runAsync = async (runner: RunnerInstance): Promise<number> => {
+    const context: Record<string, unknown> =
       this.options.enableGlobalSetup && this.hasGlobalSetupFixtures()
-        ? await this.runGlobalSetup(runner)
+        ? await this.runGlobalSetup(runner as unknown as Record<string, unknown>)
         : {};
-    const failureCount = await runner.runAsync({
+    const failureCount: number = await runner.runAsync({
       files: this.files,
       options,
     });
     if (this.options.enableGlobalTeardown && this.hasGlobalTeardownFixtures()) {
-      await this.runGlobalTeardown(runner, { context });
+      await this.runGlobalTeardown(runner as unknown as Record<string, unknown>, { context });
     }
     return failureCount;
   };
@@ -1051,29 +1294,32 @@ Mocha.prototype.run = function (fn) {
 
 /**
  * Assigns hooks to the root suite
- * @param {MochaRootHookObject} [hooks] - Hooks to assign to root suite
+ * @param hooks - Hooks to assign to root suite
  * @chainable
  */
-Mocha.prototype.rootHooks = function rootHooks({
-  beforeAll = [],
-  beforeEach = [],
-  afterAll = [],
-  afterEach = [],
-} = {}) {
-  beforeAll = utils.castArray(beforeAll);
-  beforeEach = utils.castArray(beforeEach);
-  afterAll = utils.castArray(afterAll);
-  afterEach = utils.castArray(afterEach);
-  beforeAll.forEach((hook) => {
+Mocha.prototype.rootHooks = function rootHooks(
+  this: Mocha,
+  {
+    beforeAll = [],
+    beforeEach = [],
+    afterAll = [],
+    afterEach = [],
+  }: MochaRootHookObject = {},
+): Mocha {
+  const beforeAllArr: HookFn[] = utils.castArray(beforeAll) as HookFn[];
+  const beforeEachArr: HookFn[] = utils.castArray(beforeEach) as HookFn[];
+  const afterAllArr: HookFn[] = utils.castArray(afterAll) as HookFn[];
+  const afterEachArr: HookFn[] = utils.castArray(afterEach) as HookFn[];
+  beforeAllArr.forEach((hook: HookFn) => {
     this.suite.beforeAll(hook);
   });
-  beforeEach.forEach((hook) => {
+  beforeEachArr.forEach((hook: HookFn) => {
     this.suite.beforeEach(hook);
   });
-  afterAll.forEach((hook) => {
+  afterAllArr.forEach((hook: HookFn) => {
     this.suite.afterAll(hook);
   });
-  afterEach.forEach((hook) => {
+  afterEachArr.forEach((hook: HookFn) => {
     this.suite.afterEach(hook);
   });
   return this;
@@ -1087,18 +1333,21 @@ Mocha.prototype.rootHooks = function rootHooks({
  *
  * Warning: when passed `false` and lazy loading has been enabled _via any means_ (including calling `parallelMode(true)`), this method will _not_ disable lazy loading. Lazy loading is a prerequisite for parallel
  * mode, but parallel mode is _not_ a prerequisite for lazy loading!
- * @param {boolean} [enable] - If `true`, enable; otherwise disable.
+ * @param enable - If `true`, enable; otherwise disable.
  * @throws If run in browser
  * @throws If Mocha not in `INIT` state
- * @returns {Mocha}
+ * @returns this
  * @chainable
  * @public
  */
-Mocha.prototype.parallelMode = function parallelMode(enable = true) {
+Mocha.prototype.parallelMode = function parallelMode(
+  this: Mocha,
+  enable: boolean = true,
+): Mocha {
   if (utils.isBrowser()) {
     throw createUnsupportedError("parallel mode is only supported in Node.js");
   }
-  const parallel = Boolean(enable);
+  const parallel: boolean = Boolean(enable);
   if (
     parallel === this.options.parallel &&
     this._lazyLoadFiles &&
@@ -1126,14 +1375,14 @@ Mocha.prototype.parallelMode = function parallelMode(enable = true) {
 /**
  * Disables implicit call to {@link Mocha#loadFiles} in {@link Mocha#run}. This
  * setting is used by watch mode, parallel mode, and for loading ESM files.
- * @todo This should throw if we've already loaded files; such behavior
- * necessitates adding a new state.
- * @param {boolean} [enable] - If `true`, disable eager loading of files in
- * {@link Mocha#run}
+ * @param enable - If `true`, disable eager loading of files in {@link Mocha#run}
  * @chainable
  * @public
  */
-Mocha.prototype.lazyLoadFiles = function lazyLoadFiles(enable) {
+Mocha.prototype.lazyLoadFiles = function lazyLoadFiles(
+  this: Mocha,
+  enable?: boolean,
+): Mocha {
   this._lazyLoadFiles = enable === true;
   debug("set lazy load to %s", enable);
   return this;
@@ -1145,13 +1394,16 @@ Mocha.prototype.lazyLoadFiles = function lazyLoadFiles(enable) {
  * If given no parameters, _unsets_ any previously-set fixtures.
  * @chainable
  * @public
- * @param {MochaGlobalFixture|MochaGlobalFixture[]} [setupFns] - Global setup fixture(s)
- * @returns {Mocha}
+ * @param setupFns - Global setup fixture(s)
+ * @returns this
  */
-Mocha.prototype.globalSetup = function globalSetup(setupFns = []) {
-  setupFns = utils.castArray(setupFns);
-  this.options.globalSetup = setupFns;
-  debug("configured %d global setup functions", setupFns.length);
+Mocha.prototype.globalSetup = function globalSetup(
+  this: Mocha,
+  setupFns: MochaGlobalFixture | MochaGlobalFixture[] = [],
+): Mocha {
+  const fns: MochaGlobalFixture[] = utils.castArray(setupFns);
+  this.options.globalSetup = fns;
+  debug("configured %d global setup functions", fns.length);
   return this;
 };
 
@@ -1161,13 +1413,16 @@ Mocha.prototype.globalSetup = function globalSetup(setupFns = []) {
  * If given no parameters, _unsets_ any previously-set fixtures.
  * @chainable
  * @public
- * @param {MochaGlobalFixture|MochaGlobalFixture[]} [teardownFns] - Global teardown fixture(s)
- * @returns {Mocha}
+ * @param teardownFns - Global teardown fixture(s)
+ * @returns this
  */
-Mocha.prototype.globalTeardown = function globalTeardown(teardownFns = []) {
-  teardownFns = utils.castArray(teardownFns);
-  this.options.globalTeardown = teardownFns;
-  debug("configured %d global teardown functions", teardownFns.length);
+Mocha.prototype.globalTeardown = function globalTeardown(
+  this: Mocha,
+  teardownFns: MochaGlobalFixture | MochaGlobalFixture[] = [],
+): Mocha {
+  const fns: MochaGlobalFixture[] = utils.castArray(teardownFns);
+  this.options.globalTeardown = fns;
+  debug("configured %d global teardown functions", fns.length);
   return this;
 };
 
@@ -1177,15 +1432,21 @@ Mocha.prototype.globalTeardown = function globalTeardown(teardownFns = []) {
  * This is _automatically called_ by {@link Mocha#run} _unless_ the `runGlobalSetup` option is `false`; see {@link Mocha#enableGlobalSetup}.
  *
  * The context object this function resolves with should be consumed by {@link Mocha#runGlobalTeardown}.
- * @param {object} [context] - Context object if already have one
+ * @param context - Context object if already have one
  * @public
- * @returns {Promise<object>} Context object
+ * @returns Context object
  */
-Mocha.prototype.runGlobalSetup = async function runGlobalSetup(context = {}) {
+Mocha.prototype.runGlobalSetup = async function runGlobalSetup(
+  this: Mocha,
+  context: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
   const { globalSetup } = this.options;
-  if (globalSetup && globalSetup.length) {
+  if (globalSetup && (globalSetup as MochaGlobalFixture[]).length) {
     debug("run(): global setup starting");
-    await this._runGlobalFixtures(globalSetup, context);
+    await this._runGlobalFixtures(
+      globalSetup as MochaGlobalFixture[],
+      context,
+    );
     debug("run(): global setup complete");
   }
   return context;
@@ -1197,17 +1458,21 @@ Mocha.prototype.runGlobalSetup = async function runGlobalSetup(context = {}) {
  * This is _automatically called_ by {@link Mocha#run} _unless_ the `runGlobalTeardown` option is `false`; see {@link Mocha#enableGlobalTeardown}.
  *
  * Should be called with context object returned by {@link Mocha#runGlobalSetup}, if applicable.
- * @param {object} [context] - Context object if already have one
+ * @param context - Context object if already have one
  * @public
- * @returns {Promise<object>} Context object
+ * @returns Context object
  */
 Mocha.prototype.runGlobalTeardown = async function runGlobalTeardown(
-  context = {},
-) {
+  this: Mocha,
+  context: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
   const { globalTeardown } = this.options;
-  if (globalTeardown && globalTeardown.length) {
+  if (globalTeardown && (globalTeardown as MochaGlobalFixture[]).length) {
     debug("run(): global teardown starting");
-    await this._runGlobalFixtures(globalTeardown, context);
+    await this._runGlobalFixtures(
+      globalTeardown as MochaGlobalFixture[],
+      context,
+    );
   }
   debug("run(): global teardown complete");
   return context;
@@ -1216,14 +1481,15 @@ Mocha.prototype.runGlobalTeardown = async function runGlobalTeardown(
 /**
  * Run global fixtures sequentially with context `context`
  * @private
- * @param {MochaGlobalFixture[]} [fixtureFns] - Fixtures to run
- * @param {object} [context] - context object
- * @returns {Promise<object>} context object
+ * @param fixtureFns - Fixtures to run
+ * @param context - context object
+ * @returns context object
  */
 Mocha.prototype._runGlobalFixtures = async function _runGlobalFixtures(
-  fixtureFns = [],
-  context = {},
-) {
+  this: Mocha,
+  fixtureFns: MochaGlobalFixture[] = [],
+  context: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
   for await (const fixtureFn of fixtureFns) {
     await fixtureFn.call(context);
   }
@@ -1235,10 +1501,13 @@ Mocha.prototype._runGlobalFixtures = async function _runGlobalFixtures(
  *
  * @chainable
  * @public
- * @param {boolean } [enabled=true] - If `false`, do not run global setup fixture
- * @returns {Mocha}
+ * @param enabled - If `false`, do not run global setup fixture
+ * @returns this
  */
-Mocha.prototype.enableGlobalSetup = function enableGlobalSetup(enabled = true) {
+Mocha.prototype.enableGlobalSetup = function enableGlobalSetup(
+  this: Mocha,
+  enabled: boolean = true,
+): Mocha {
   this.options.enableGlobalSetup = Boolean(enabled);
   return this;
 };
@@ -1248,12 +1517,13 @@ Mocha.prototype.enableGlobalSetup = function enableGlobalSetup(enabled = true) {
  *
  * @chainable
  * @public
- * @param {boolean } [enabled=true] - If `false`, do not run global teardown fixture
- * @returns {Mocha}
+ * @param enabled - If `false`, do not run global teardown fixture
+ * @returns this
  */
 Mocha.prototype.enableGlobalTeardown = function enableGlobalTeardown(
-  enabled = true,
-) {
+  this: Mocha,
+  enabled: boolean = true,
+): Mocha {
   this.options.enableGlobalTeardown = Boolean(enabled);
   return this;
 };
@@ -1261,18 +1531,21 @@ Mocha.prototype.enableGlobalTeardown = function enableGlobalTeardown(
 /**
  * Returns `true` if one or more global setup fixtures have been supplied.
  * @public
- * @returns {boolean}
+ * @returns boolean
  */
-Mocha.prototype.hasGlobalSetupFixtures = function hasGlobalSetupFixtures() {
-  return Boolean(this.options.globalSetup.length);
-};
+Mocha.prototype.hasGlobalSetupFixtures =
+  function hasGlobalSetupFixtures(this: Mocha): boolean {
+    return Boolean((this.options.globalSetup as MochaGlobalFixture[]).length);
+  };
 
 /**
  * Returns `true` if one or more global teardown fixtures have been supplied.
  * @public
- * @returns {boolean}
+ * @returns boolean
  */
 Mocha.prototype.hasGlobalTeardownFixtures =
-  function hasGlobalTeardownFixtures() {
-    return Boolean(this.options.globalTeardown.length);
+  function hasGlobalTeardownFixtures(this: Mocha): boolean {
+    return Boolean(
+      (this.options.globalTeardown as MochaGlobalFixture[]).length,
+    );
   };

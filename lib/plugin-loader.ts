@@ -1,6 +1,9 @@
-/**
- * @typedef {import('./types.d.ts').PluginDefinition} PluginDefinition
- */
+"use strict";
+
+import type {
+  PluginDefinition,
+  MochaRootHookObject,
+} from "./types.d.ts";
 
 /**
  * Provides a way to load "plugins" as provided by the user.
@@ -13,31 +16,43 @@
  * @module plugin
  */
 
-"use strict";
-
-const debug = require("debug")("mocha:plugin-loader");
+const debug: (...args: unknown[]) => void = require("debug")(
+  "mocha:plugin-loader",
+);
 const {
   createInvalidPluginDefinitionError,
   createInvalidPluginImplementationError,
 } = require("./errors");
 const { castArray } = require("./utils");
 
-/**
- * @typedef {import('./types.d.ts').PluginLoaderOptions} PluginLoaderOptions
- */
+/** Hook function type */
+type HookFn = (...args: unknown[]) => unknown;
+
+/** Interface for a root hook object with array hooks */
+interface RootHookArrayObject {
+  beforeAll: HookFn[];
+  beforeEach: HookFn[];
+  afterAll: HookFn[];
+  afterEach: HookFn[];
+}
+
+/** Local options interface that correctly types pluginDefs as array */
+interface PluginLoaderConstructorOptions {
+  pluginDefs?: PluginDefinition[];
+  ignore?: string[];
+}
 
 /**
  * Built-in plugin definitions.
  */
-const MochaPlugins = [
+const MochaPlugins: PluginDefinition[] = [
   /**
    * Root hook plugin definition
-   * @type {PluginDefinition}
    */
   {
     exportName: "mochaHooks",
     optionName: "rootHooks",
-    validate(value) {
+    validate(value: unknown): void {
       if (
         Array.isArray(value) ||
         (typeof value !== "function" && typeof value !== "object")
@@ -47,28 +62,39 @@ const MochaPlugins = [
         );
       }
     },
-    async finalize(rootHooks) {
+    async finalize(
+      rootHooks: unknown[],
+    ): Promise<MochaRootHookObject | undefined> {
       if (rootHooks.length) {
-        const rootHookObjects = await Promise.all(
-          rootHooks.map(async (hook) =>
+        const rootHookObjects: Record<string, unknown>[] = await Promise.all(
+          rootHooks.map(async (hook: unknown) =>
             typeof hook === "function" ? hook() : hook,
           ),
         );
 
-        return rootHookObjects.reduce(
+        return rootHookObjects.reduce<RootHookArrayObject>(
           (acc, hook) => {
-            hook = {
-              beforeAll: [],
-              beforeEach: [],
-              afterAll: [],
-              afterEach: [],
-              ...hook,
-            };
+            const normalized: RootHookArrayObject = Object.assign(
+              { beforeAll: [], beforeEach: [], afterAll: [], afterEach: [] },
+              hook,
+            );
             return {
-              beforeAll: [...acc.beforeAll, ...castArray(hook.beforeAll)],
-              beforeEach: [...acc.beforeEach, ...castArray(hook.beforeEach)],
-              afterAll: [...acc.afterAll, ...castArray(hook.afterAll)],
-              afterEach: [...acc.afterEach, ...castArray(hook.afterEach)],
+              beforeAll: [
+                ...acc.beforeAll,
+                ...castArray(normalized.beforeAll),
+              ],
+              beforeEach: [
+                ...acc.beforeEach,
+                ...castArray(normalized.beforeEach),
+              ],
+              afterAll: [
+                ...acc.afterAll,
+                ...castArray(normalized.afterAll),
+              ],
+              afterEach: [
+                ...acc.afterEach,
+                ...castArray(normalized.afterEach),
+              ],
             };
           },
           { beforeAll: [], beforeEach: [], afterAll: [], afterEach: [] },
@@ -78,15 +104,14 @@ const MochaPlugins = [
   },
   /**
    * Global setup fixture plugin definition
-   * @type {PluginDefinition}
    */
   {
     exportName: "mochaGlobalSetup",
     optionName: "globalSetup",
-    validate(value) {
+    validate(this: PluginDefinition, value: unknown): void {
       let isValid = true;
       if (Array.isArray(value)) {
-        if (value.some((item) => typeof item !== "function")) {
+        if (value.some((item: unknown) => typeof item !== "function")) {
           isValid = false;
         }
       } else if (typeof value !== "function") {
@@ -102,15 +127,14 @@ const MochaPlugins = [
   },
   /**
    * Global teardown fixture plugin definition
-   * @type {PluginDefinition}
    */
   {
     exportName: "mochaGlobalTeardown",
     optionName: "globalTeardown",
-    validate(value) {
+    validate(this: PluginDefinition, value: unknown): void {
       let isValid = true;
       if (Array.isArray(value)) {
-        if (value.some((item) => typeof item !== "function")) {
+        if (value.some((item: unknown) => typeof item !== "function")) {
           isValid = false;
         }
       } else if (typeof value !== "function") {
@@ -127,51 +151,49 @@ const MochaPlugins = [
 ];
 
 /**
- * Contains a registry of [plugin definitions]{@link PluginDefinition} and discovers plugin implementations in user-supplied code.
+ * Contains a registry of plugin definitions and discovers plugin implementations in user-supplied code.
  *
  * - [load()]{@link #load} should be called for all required modules
- * - The result of [finalize()]{@link #finalize} should be merged into the options for the [Mocha]{@link Mocha} constructor.
+ * - The result of [finalize()]{@link #finalize} should be merged into the options for the {@link Mocha} constructor.
  * @private
  */
 class PluginLoader {
+  /** Map of registered plugin defs */
+  registered: Map<string, PluginDefinition>;
+
+  /** Cache of known `optionName` values for checking conflicts */
+  knownOptionNames: Set<string>;
+
+  /** Cache of known `exportName` values for checking conflicts */
+  knownExportNames: Set<string>;
+
+  /** Map of user-supplied plugin implementations */
+  loaded: Map<string, unknown[]>;
+
+  /** Set of ignored plugins by export name */
+  ignoredExportNames: Set<string>;
+
   /**
    * Initializes plugin names, plugin map, etc.
-   * @param {PluginLoaderOptions} [opts] - Options
+   * @param opts - Options
    */
-  constructor({ pluginDefs = MochaPlugins, ignore = [] } = {}) {
-    /**
-     * Map of registered plugin defs
-     * @type {Map<string,PluginDefinition>}
-     */
+  constructor({
+    pluginDefs = MochaPlugins,
+    ignore = [],
+  }: PluginLoaderConstructorOptions = {}) {
     this.registered = new Map();
-
-    /**
-     * Cache of known `optionName` values for checking conflicts
-     * @type {Set<string>}
-     */
     this.knownOptionNames = new Set();
-
-    /**
-     * Cache of known `exportName` values for checking conflicts
-     * @type {Set<string>}
-     */
     this.knownExportNames = new Set();
-
-    /**
-     * Map of user-supplied plugin implementations
-     * @type {Map<string,Array<*>>}
-     */
     this.loaded = new Map();
+    this.ignoredExportNames = new Set(
+      castArray(ignore) as string[],
+    );
 
-    /**
-     * Set of ignored plugins by export name
-     * @type {Set<string>}
-     */
-    this.ignoredExportNames = new Set(castArray(ignore));
-
-    castArray(pluginDefs).forEach((pluginDef) => {
-      this.register(pluginDef);
-    });
+    (castArray(pluginDefs) as PluginDefinition[]).forEach(
+      (pluginDef: PluginDefinition) => {
+        this.register(pluginDef);
+      },
+    );
 
     debug(
       "registered %d plugin defs (%d ignored)",
@@ -182,9 +204,9 @@ class PluginLoader {
 
   /**
    * Register a plugin
-   * @param {PluginDefinition} pluginDef - Plugin definition
+   * @param pluginDef - Plugin definition
    */
-  register(pluginDef) {
+  register(pluginDef: PluginDefinition): void {
     if (!pluginDef || typeof pluginDef !== "object") {
       throw createInvalidPluginDefinitionError(
         "pluginDef is non-object or falsy",
@@ -223,23 +245,25 @@ class PluginLoader {
   /**
    * Inspects a module's exports for known plugins and keeps them in memory.
    *
-   * @param {*} requiredModule - The exports of a module loaded via `--require`
-   * @returns {boolean} If one or more plugins was found, return `true`.
+   * @param requiredModule - The exports of a module loaded via `--require`
+   * @returns If one or more plugins was found, return `true`.
    */
-  load(requiredModule) {
+  load(requiredModule: unknown): boolean {
     // we should explicitly NOT fail if other stuff is exported.
     // we only care about the plugins we know about.
     if (requiredModule && typeof requiredModule === "object") {
-      return Array.from(this.knownExportNames).reduce(
-        (pluginImplFound, pluginName) => {
-          const pluginImpl = requiredModule[pluginName];
+      return Array.from(this.knownExportNames).reduce<boolean>(
+        (pluginImplFound: boolean, pluginName: string) => {
+          const pluginImpl = (requiredModule as Record<string, unknown>)[
+            pluginName
+          ];
           if (pluginImpl) {
-            const plugin = this.registered.get(pluginName);
+            const plugin = this.registered.get(pluginName)!;
             if (typeof plugin.validate === "function") {
               plugin.validate(pluginImpl);
             }
             this.loaded.set(pluginName, [
-              ...this.loaded.get(pluginName),
+              ...this.loaded.get(pluginName)!,
               ...castArray(pluginImpl),
             ]);
             return true;
@@ -253,18 +277,18 @@ class PluginLoader {
   }
 
   /**
-   * Call the `finalize()` function of each known plugin definition on the plugins found by [load()]{@link PluginLoader#load}.
+   * Call the `finalize()` function of each known plugin definition on the plugins found by {@link PluginLoader#load}.
    *
    * Output suitable for passing as input into {@link Mocha} constructor.
-   * @returns {Promise<object>} Object having keys corresponding to registered plugin definitions' `optionName` prop (or `exportName`, if none), and the values are the implementations as provided by a user.
+   * @returns Object having keys corresponding to registered plugin definitions' `optionName` prop (or `exportName`, if none), and the values are the implementations as provided by a user.
    */
-  async finalize() {
-    const finalizedPlugins = Object.create(null);
+  async finalize(): Promise<Record<string, unknown>> {
+    const finalizedPlugins: Record<string, unknown> = Object.create(null);
 
     for await (const [exportName, pluginImpls] of this.loaded.entries()) {
       if (pluginImpls.length) {
-        const plugin = this.registered.get(exportName);
-        finalizedPlugins[plugin.optionName] =
+        const plugin = this.registered.get(exportName)!;
+        finalizedPlugins[plugin.optionName!] =
           typeof plugin.finalize === "function"
             ? await plugin.finalize(pluginImpls)
             : pluginImpls;
@@ -277,9 +301,12 @@ class PluginLoader {
 
   /**
    * Constructs a {@link PluginLoader}
-   * @param {PluginLoaderOptions} [opts] - Plugin loader options
+   * @param opts - Plugin loader options
    */
-  static create({ pluginDefs = MochaPlugins, ignore = [] } = {}) {
+  static create({
+    pluginDefs = MochaPlugins,
+    ignore = [],
+  }: PluginLoaderConstructorOptions = {}): PluginLoader {
     return new PluginLoader({ pluginDefs, ignore });
   }
 }
