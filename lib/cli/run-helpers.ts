@@ -7,31 +7,93 @@
  * @private
  */
 
-/**
- * @typedef {import('../mocha.js')} Mocha
- * @typedef {import('../types.d.ts').MochaOptions} MochaOptions
- * @typedef {import('../types.d.ts').UnmatchedFile} UnmatchedFile
- * @typedef {import('../runner.js')} Runner
- */
+import type { FSWatcher } from "chokidar" with {
+  "resolution-mode": "import",
+};
+import type { FileCollectionOptions } from "../types.d.ts";
 
-const fs = require("node:fs");
-const path = require("node:path");
-const pc = require("picocolors");
-const debug = require("debug")("mocha:cli:run:helpers");
-const { watchRun, watchParallelRun } = require("./watch-run");
-const collectFiles = require("./collect-files");
-const { format } = require("node:util");
-const { createInvalidLegacyPluginError } = require("../errors");
-const { requireOrImport } = require("../nodejs/esm-utils");
-const PluginLoader = require("../plugin-loader");
+const fs: typeof import("node:fs") = require("node:fs");
+const path: typeof import("node:path") = require("node:path");
+const pc: typeof import("picocolors") = require("picocolors");
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:run:helpers");
+const {
+  watchRun,
+  watchParallelRun,
+}: {
+  watchRun: (
+    mocha: MochaLike,
+    opts: { watchFiles?: string[]; watchIgnore: string[] },
+    fileCollectParams: FileCollectionOptions,
+  ) => FSWatcher;
+  watchParallelRun: (
+    mocha: MochaLike,
+    opts: { watchFiles?: string[]; watchIgnore: string[] },
+    fileCollectParams: FileCollectionOptions,
+  ) => FSWatcher;
+} = require("./watch-run");
+const collectFiles: (
+  params: FileCollectionOptions,
+) => { files: string[]; unmatchedFiles: { pattern: string; absolutePath: string }[] } =
+  require("./collect-files");
+const { format }: typeof import("node:util") = require("node:util");
+const {
+  createInvalidLegacyPluginError,
+}: {
+  createInvalidLegacyPluginError: (
+    message: string,
+    pluginType: string,
+    pluginId?: string,
+  ) => Error;
+} = require("../errors");
+const {
+  requireOrImport,
+}: { requireOrImport: (module: string) => Promise<unknown> } =
+  require("../nodejs/esm-utils");
+const PluginLoader: {
+  create: (opts: { ignore: string[] }) => PluginLoaderInstance;
+} = require("../plugin-loader");
+
+interface PluginLoaderInstance {
+  load: (module: unknown) => boolean;
+  finalize: () => Promise<Record<string, unknown>>;
+}
+
+/**
+ * Mocha instance shape as used by run-helpers
+ */
+interface MochaLike {
+  files: string[];
+  run: (fn?: (failures: number) => void) => RunnerLike;
+  loadFilesAsync: () => Promise<void>;
+  [key: string]: unknown;
+}
+
+interface RunnerLike {
+  [key: string]: unknown;
+}
+
+interface RunOptions {
+  exit?: boolean;
+  passOnFailingTestSuite?: boolean;
+  watch?: boolean;
+  extension?: string[];
+  ignore?: string[];
+  file?: string[];
+  parallel?: boolean;
+  recursive?: boolean;
+  sort?: boolean;
+  spec?: string[];
+  watchFiles?: string[];
+  watchIgnore?: string[];
+  [key: string]: unknown;
+}
 
 /**
  * Exits Mocha when tests + code under test has finished execution (default)
- * @param {number} clampedCode - Exit code; typically # of failures
- * @ignore
  * @private
  */
-const exitMochaLater = (clampedCode) => {
+const exitMochaLater = (clampedCode: number): void => {
   process.on("exit", () => {
     process.exitCode = Math.min(
       clampedCode,
@@ -43,11 +105,9 @@ const exitMochaLater = (clampedCode) => {
 /**
  * Exits Mocha when Mocha itself has finished execution, regardless of
  * what the tests or code under test is doing.
- * @param {number} clampedCode - Exit code; typically # of failures
- * @ignore
  * @private
  */
-const exitMocha = (clampedCode) => {
+const exitMocha = (clampedCode: number): void => {
   const usePosixExitCodes = process.argv.includes("--posix-exit-codes");
   clampedCode = Math.min(clampedCode, usePosixExitCodes ? 1 : 255);
   let draining = 0;
@@ -59,7 +119,7 @@ const exitMocha = (clampedCode) => {
   // flush output for Node.js Windows pipe bug
   // https://github.com/joyent/node/issues/6247 is just one bug example
   // https://github.com/visionmedia/mocha/issues/333 has a good discussion
-  const done = () => {
+  const done = (): void => {
     if (!draining--) {
       process.exit(clampedCode);
     }
@@ -79,25 +139,21 @@ const exitMocha = (clampedCode) => {
 /**
  * Coerce a comma-delimited string (or array thereof) into a flattened array of
  * strings
- * @param {string|string[]} str - Value to coerce
- * @returns {string[]} Array of strings
  * @private
  */
-exports.list = (str) =>
+exports.list = (str: string | string[]): string[] =>
   Array.isArray(str) ? exports.list(str.join(",")) : str.split(/ *, */);
 
 /**
  * `require()` the modules as required by `--require <require>`.
  *
  * Returns array of `mochaHooks` exports, if any.
- * @param {string[]} requires - Modules to require
- * @returns {Promise<object>} Plugin implementations
  * @private
  */
 exports.handleRequires = async (
-  requires = [],
-  { ignoredPlugins = [] } = {},
-) => {
+  requires: string[] = [],
+  { ignoredPlugins = [] }: { ignoredPlugins?: string[] } = {},
+): Promise<Record<string, unknown>> => {
   const pluginLoader = PluginLoader.create({ ignore: ignoredPlugins });
   for await (const mod of requires) {
     let modpath = mod;
@@ -123,12 +179,12 @@ exports.handleRequires = async (
 
 /**
  * Logs errors and exits the app if unmatched files exist
- * @param {Mocha} mocha - Mocha instance
- * @param {UnmatchedFile} unmatchedFiles - object containing unmatched file paths
- * @returns {Promise<Runner>}
  * @private
  */
-const handleUnmatchedFiles = (mocha, unmatchedFiles) => {
+const handleUnmatchedFiles = (
+  mocha: MochaLike,
+  unmatchedFiles: { pattern: string; absolutePath: string }[],
+): RunnerLike | undefined => {
   if (unmatchedFiles.length === 0) {
     return;
   }
@@ -144,23 +200,18 @@ const handleUnmatchedFiles = (mocha, unmatchedFiles) => {
     "No test file(s) found with the given pattern, exiting with code 1",
   );
 
-  return mocha.run(exitMocha(1));
+  return mocha.run(exitMocha(1) as unknown as undefined);
 };
 
 /**
  * Collect and load test files, then run mocha instance.
- * @param {Mocha} mocha - Mocha instance
- * @param {MochaOptions} [opts] - Command line options
- * @param {Object} fileCollectParams - Parameters that control test
- *   file collection. See `lib/cli/collect-files.js`.
- * @returns {Promise<Runner>}
  * @private
  */
 const singleRun = async (
-  mocha,
-  { exit, passOnFailingTestSuite },
-  fileCollectParams,
-) => {
+  mocha: MochaLike,
+  { exit, passOnFailingTestSuite }: RunOptions,
+  fileCollectParams: FileCollectionOptions,
+): Promise<RunnerLike | undefined> => {
   const fileCollectionObj = collectFiles(fileCollectParams);
 
   if (fileCollectionObj.unmatchedFiles.length > 0) {
@@ -179,16 +230,13 @@ const singleRun = async (
  * Collect files and run tests (using `Runner`).
  *
  * This is `async` for consistency.
- *
- * @param {Mocha} mocha - Mocha instance
- * @param {MochaOptions} options - Command line options
- * @param {Object} fileCollectParams - Parameters that control test
- *   file collection. See `lib/cli/collect-files.js`.
- * @returns {Promise<Runner>}
- * @ignore
  * @private
  */
-const parallelRun = async (mocha, options, fileCollectParams) => {
+const parallelRun = async (
+  mocha: MochaLike,
+  options: RunOptions,
+  fileCollectParams: FileCollectionOptions,
+): Promise<RunnerLike | undefined> => {
   const fileCollectionObj = collectFiles(fileCollectParams);
 
   if (fileCollectionObj.unmatchedFiles.length > 0) {
@@ -211,12 +259,12 @@ const parallelRun = async (mocha, options, fileCollectParams) => {
  * - `watchRun`: run tests in serial, rerunning as files change
  * - `parallelRun`: run tests in parallel & exit
  * - `watchParallelRun`: run tests in parallel, rerunning as files change
- * @param {Mocha} mocha - Mocha instance
- * @param {MochaOptions} options - Command line options
  * @private
- * @returns {Promise<Runner>}
  */
-exports.runMocha = async (mocha, options) => {
+exports.runMocha = async (
+  mocha: MochaLike,
+  options: RunOptions,
+): Promise<RunnerLike | FSWatcher | undefined> => {
   const {
     watch = false,
     extension = [],
@@ -228,7 +276,7 @@ exports.runMocha = async (mocha, options) => {
     spec = [],
   } = options;
 
-  const fileCollectParams = {
+  const fileCollectParams: FileCollectionOptions = {
     ignore,
     extension,
     file,
@@ -237,13 +285,12 @@ exports.runMocha = async (mocha, options) => {
     spec,
   };
 
-  let run;
   if (watch) {
-    run = parallel ? watchParallelRun : watchRun;
-  } else {
-    run = parallel ? parallelRun : singleRun;
+    const run = parallel ? watchParallelRun : watchRun;
+    return run(mocha, options as Parameters<typeof run>[1], fileCollectParams);
   }
 
+  const run = parallel ? parallelRun : singleRun;
   return run(mocha, options, fileCollectParams);
 };
 
@@ -251,20 +298,18 @@ exports.runMocha = async (mocha, options) => {
  * Used for `--reporter` and `--ui`.  Ensures there's only one, and asserts that
  * it actually exists. This must be run _after_ requires are processed (see
  * {@link handleRequires}), as it'll prevent interfaces from loading otherwise.
- * @param {Object} opts - Options object
- * @param {"reporter"|"ui"} pluginType - Type of plugin.
- * @param {Object} [map] - Used as a cache of sorts;
- * `Mocha.reporters` where each key corresponds to a reporter name,
- * `Mocha.interfaces` where each key corresponds to an interface name.
  * @private
  */
-exports.validateLegacyPlugin = (opts, pluginType, map = {}) => {
+exports.validateLegacyPlugin = (
+  opts: Record<string, unknown>,
+  pluginType: "reporter" | "ui",
+  map: Record<string, unknown> = {},
+): void => {
   /**
    * This should be a unique identifier; either a string (present in `map`),
    * or a resolvable (via `require.resolve`) module ID/path.
-   * @type {string}
    */
-  const pluginId = opts[pluginType];
+  const pluginId = opts[pluginType] as string | string[];
 
   if (Array.isArray(pluginId)) {
     throw createInvalidLegacyPluginError(
@@ -273,7 +318,7 @@ exports.validateLegacyPlugin = (opts, pluginType, map = {}) => {
     );
   }
 
-  const createUnknownError = (err) =>
+  const createUnknownError = (err: unknown): Error =>
     createInvalidLegacyPluginError(
       format('Could not load %s "%s":\n\n %O', pluginType, pluginId, err),
       pluginType,
@@ -282,7 +327,7 @@ exports.validateLegacyPlugin = (opts, pluginType, map = {}) => {
 
   // if this exists, then it's already loaded, so nothing more to do.
   if (!map[pluginId]) {
-    let foundId;
+    let foundId: string | undefined;
     try {
       foundId = require.resolve(pluginId);
       map[pluginId] = require(foundId);
@@ -299,8 +344,14 @@ exports.validateLegacyPlugin = (opts, pluginType, map = {}) => {
   }
 };
 
-const createExitHandler = ({ exit, passOnFailingTestSuite }) => {
-  return (code) => {
+const createExitHandler = ({
+  exit,
+  passOnFailingTestSuite,
+}: {
+  exit?: boolean;
+  passOnFailingTestSuite?: boolean;
+}): ((code: number) => void) => {
+  return (code: number): void => {
     const clampedCode = passOnFailingTestSuite ? 0 : Math.min(code, 255);
 
     return exit ? exitMocha(clampedCode) : exitMochaLater(clampedCode);

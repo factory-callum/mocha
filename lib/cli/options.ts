@@ -7,46 +7,74 @@
  * @private
  */
 
-const fs = require("node:fs");
-const pc = require("picocolors");
-const yargsParser = require("yargs-parser");
+const fs: typeof import("node:fs") = require("node:fs");
+const pc: typeof import("picocolors") = require("picocolors");
+const yargsParser: {
+  (args: string | string[], opts?: Record<string, unknown>): YargsArguments;
+  detailed: (
+    args: string | string[],
+    opts?: Record<string, unknown>,
+  ) => { argv: YargsArguments; error: Error | null };
+} = require("yargs-parser");
 const {
   types,
   aliases,
   isMochaFlag,
   expectedTypeForFlag,
+}: {
+  types: { array: string[]; boolean: string[]; number: string[]; string: string[]; [key: string]: string[] };
+  aliases: Record<string, string[]>;
+  isMochaFlag: (flag: string) => boolean;
+  expectedTypeForFlag: (flag: string) => string | undefined;
 } = require("./run-option-metadata");
-const { ONE_AND_DONE_ARGS } = require("./one-and-dones");
-const mocharc = require("../mocharc.json");
-const { list } = require("./run-helpers");
-const { loadConfig, findConfig } = require("./config");
-const findUp = require("find-up");
-const debug = require("debug")("mocha:cli:options");
-const { isNodeFlag } = require("./node-flags");
+const { ONE_AND_DONE_ARGS }: { ONE_AND_DONE_ARGS: Set<string> } =
+  require("./one-and-dones");
+const mocharc: Record<string, unknown> = require("../mocharc.json");
+const { list }: { list: (str: string | string[]) => string[] } =
+  require("./run-helpers");
+const {
+  loadConfig,
+  findConfig,
+}: {
+  loadConfig: (filepath: string) => Record<string, unknown>;
+  findConfig: () => string | undefined;
+} = require("./config");
+const findUp: { sync: (name: string) => string | undefined } =
+  require("find-up");
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:options");
+const { isNodeFlag }: { isNodeFlag: (flag: string, stripLeadingDashes?: boolean) => boolean } =
+  require("./node-flags");
 const {
   createUnparsableFileError,
   createInvalidArgumentTypeError,
   createUnsupportedError,
+}: {
+  createUnparsableFileError: (message: string, filepath: string) => Error;
+  createInvalidArgumentTypeError: (
+    message: string,
+    argument: unknown,
+    expected: string | undefined,
+  ) => Error;
+  createUnsupportedError: (message: string) => Error;
 } = require("../errors");
-const { isNumeric } = require("../utils");
+const { isNumeric }: { isNumeric: (value: unknown) => boolean } =
+  require("../utils");
 
 /**
- * The `yargs-parser` namespace
- * @external yargsParser
- * @see {@link https://npm.im/yargs-parser}
+ * Parsed arguments from yargs-parser
  */
-
-/**
- * An object returned by a configured `yargs-parser` representing arguments
- * @memberof external:yargsParser
- * @interface Arguments
- */
+interface YargsArguments {
+  _: (string | number)[];
+  "--"?: (string | number)[];
+  [key: string]: unknown;
+}
 
 /**
  * Base yargs parser configuration
  * @private
  */
-const YARGS_PARSER_CONFIG = {
+const YARGS_PARSER_CONFIG: Record<string, boolean> = {
   "combine-arrays": true,
   "short-option-groups": false,
   "dot-notation": false,
@@ -59,11 +87,14 @@ const YARGS_PARSER_CONFIG = {
  * avoid outputting non-canonical keynames, as we need to do some
  * lookups.
  * @private
- * @ignore
  */
-const configuration = Object.assign({}, YARGS_PARSER_CONFIG, {
-  "camel-case-expansion": false,
-});
+const configuration: Record<string, boolean> = Object.assign(
+  {},
+  YARGS_PARSER_CONFIG,
+  {
+    "camel-case-expansion": false,
+  },
+);
 
 /**
  * This is a really fancy way to:
@@ -71,23 +102,31 @@ const configuration = Object.assign({}, YARGS_PARSER_CONFIG, {
  * - `boolean`/`number`/`string`- options: use last element when given multiple times
  * This is passed as the `coerce` option to `yargs-parser`
  * @private
- * @ignore
  */
 const globOptions = ["spec", "ignore"];
-const coerceOpts = Object.assign(
-  types.array.reduce(
+const coerceOpts: Record<string, (v: unknown) => unknown> = Object.assign(
+  types.array.reduce<Record<string, (v: unknown) => unknown>>(
     (acc, arg) =>
       Object.assign(acc, {
-        [arg]: (v) =>
-          Array.from(new Set(globOptions.includes(arg) ? v : list(v))),
+        [arg]: (v: unknown): unknown[] =>
+          Array.from(
+            new Set(
+              globOptions.includes(arg)
+                ? (v as unknown[])
+                : list(v as string | string[]),
+            ),
+          ),
       }),
     {},
   ),
   types.boolean
     .concat(types.string, types.number)
-    .reduce(
+    .reduce<Record<string, (v: unknown) => unknown>>(
       (acc, arg) =>
-        Object.assign(acc, { [arg]: (v) => (Array.isArray(v) ? v.pop() : v) }),
+        Object.assign(acc, {
+          [arg]: (v: unknown): unknown =>
+            Array.isArray(v) ? v.pop() : v,
+        }),
       {},
     ),
 );
@@ -98,25 +137,23 @@ const coerceOpts = Object.assign(
  * the board of non-boolean options.
  * This is passed as the `narg` option to `yargs-parser`
  * @private
- * @ignore
  */
-const nargOpts = types.array
+const nargOpts: Record<string, number> = types.array
   .concat(types.string, types.number)
-  .reduce((acc, arg) => Object.assign(acc, { [arg]: 1 }), {});
+  .reduce<Record<string, number>>(
+    (acc, arg) => Object.assign(acc, { [arg]: 1 }),
+    {},
+  );
 
 /**
  * Throws either "UNSUPPORTED" error or "INVALID_ARG_TYPE" error for numeric positional arguments.
- * @param {string[]} allArgs - Stringified args passed to mocha cli
- * @param {number} numericArg - Numeric positional arg for which error must be thrown
- * @param {Object} parsedResult - Result from `yargs-parser`
  * @private
- * @ignore
  */
 const createErrorForNumericPositionalArg = (
-  numericArg,
-  allArgs,
-  parsedResult,
-) => {
+  numericArg: string | number,
+  allArgs: string[],
+  parsedResult: YargsArguments,
+): void => {
   // A flag for `numericArg` exists if:
   // 1. A mocha flag immediately preceeded the numericArg in `allArgs` array and
   // 2. `numericArg` value could not be assigned to this flag by `yargs-parser` because of incompatible datatype.
@@ -144,21 +181,23 @@ const createErrorForNumericPositionalArg = (
 
 /**
  * Wrapper around `yargs-parser` which applies our settings
- * @param {string|string[]} args - Arguments to parse
- * @param {Object} defaultValues - Default values of mocharc.json
- * @param  {...Object} configObjects - `configObjects` for yargs-parser
  * @private
- * @ignore
  */
-const parse = (args = [], defaultValues = {}, ...configObjects) => {
+const parse = (
+  args: string | string[] = [],
+  defaultValues: Record<string, unknown> = {},
+  ...configObjects: Record<string, unknown>[]
+): YargsArguments => {
   // save node-specific args for special handling.
   // 1. when these args have a "=" they should be considered to have values
   // 2. if they don't, they are just boolean flags
   // 3. to avoid explicitly defining the set of them, we tell yargs-parser they
   //    are ALL boolean flags.
   // 4. we can then reapply the values after yargs-parser is done.
-  const allArgs = Array.isArray(args) ? args : args.split(" ");
-  const nodeArgs = allArgs.reduce((acc, arg) => {
+  const allArgs: string[] = Array.isArray(args) ? args : args.split(" ");
+  const nodeArgs: [string, string | boolean][] = allArgs.reduce<
+    [string, string | boolean][]
+  >((acc, arg) => {
     const pair = arg.split("=");
     let flag = pair[0];
     if (isNodeFlag(flag, false)) {
@@ -204,15 +243,14 @@ const parse = (args = [], defaultValues = {}, ...configObjects) => {
 
 /**
  * Given path to config file in `args.config`, attempt to load & parse config file.
- * @param {Object} [args] - Arguments object
- * @param {string|boolean} [args.config] - Path to config file or `false` to skip
  * @public
  * @alias module:lib/cli.loadRc
- * @returns {external:yargsParser.Arguments|void} Parsed config, or nothing if `args.config` is `false`
  */
-const loadRc = (args = {}) => {
+const loadRc = (
+  args: { config?: string | boolean; [key: string]: unknown } = {},
+): Record<string, unknown> | undefined => {
   if (args.config !== false) {
-    const config = args.config || findConfig();
+    const config = (args.config as string) || findConfig();
     return config ? loadConfig(config) : {};
   }
 };
@@ -221,21 +259,21 @@ module.exports.loadRc = loadRc;
 
 /**
  * Given path to `package.json` in `args.package`, attempt to load config from `mocha` prop.
- * @param {Object} [args] - Arguments object
- * @param {string|boolean} [args.config] - Path to `package.json` or `false` to skip
  * @public
  * @alias module:lib/cli.loadPkgRc
- * @returns {external:yargsParser.Arguments|void} Parsed config, or nothing if `args.package` is `false`
  */
-const loadPkgRc = (args = {}) => {
-  let result;
+const loadPkgRc = (
+  args: { package?: string | boolean; [key: string]: unknown } = {},
+): Record<string, unknown> | undefined => {
+  let result: Record<string, unknown> | undefined;
   if (args.package === false) {
     return result;
   }
   result = {};
-  const filepath = args.package || findUp.sync(mocharc.package);
+  const filepath =
+    (args.package as string) || findUp.sync(mocharc.package as string);
   if (filepath) {
-    let configData;
+    let configData: string;
     try {
       configData = fs.readFileSync(filepath, "utf8");
     } catch (err) {
@@ -251,10 +289,13 @@ const loadPkgRc = (args = {}) => {
       }
     }
     try {
-      const pkg = JSON.parse(configData);
+      const pkg = JSON.parse(configData) as Record<
+        string,
+        unknown
+      >;
       if (pkg.mocha) {
         debug("`mocha` prop of package.json parsed: %O", pkg.mocha);
-        result = pkg.mocha;
+        result = pkg.mocha as Record<string, unknown>;
       } else {
         debug("no config found in %s", filepath);
       }
@@ -282,17 +323,15 @@ module.exports.loadPkgRc = loadPkgRc;
  *
  * If a {@link module:lib/cli/one-and-dones.ONE_AND_DONE_ARGS "one-and-done" option} is present in the `argv` array, no external config files will be read.
  * @summary Parses options read from `.mocharc.*` and `package.json`.
- * @param {string|string[]} [argv] - Arguments to parse
  * @public
  * @alias module:lib/cli.loadOptions
- * @returns {external:yargsParser.Arguments} Parsed args from everything
  */
-const loadOptions = (argv = []) => {
+const loadOptions = (argv: string | string[] = []): YargsArguments => {
   let args = parse(argv);
   // short-circuit: look for a flag that would abort loading of options
   if (
     Array.from(ONE_AND_DONE_ARGS).reduce(
-      (acc, arg) => acc || arg in args,
+      (acc: boolean, arg: string) => acc || arg in args,
       false,
     )
   ) {
@@ -300,30 +339,34 @@ const loadOptions = (argv = []) => {
   }
 
   const envConfig = parse(process.env.MOCHA_OPTIONS || "");
-  const rcConfig = loadRc(args);
-  const pkgConfig = loadPkgRc(args);
+  const rcConfig = loadRc(args as { config?: string | boolean; [key: string]: unknown });
+  const pkgConfig = loadPkgRc(args as { package?: string | boolean; [key: string]: unknown });
 
   if (rcConfig) {
     args.config = false;
-    args._ = args._.concat(rcConfig._ || []);
+    args._ = args._.concat(
+      ((rcConfig as YargsArguments)._ || []) as (string | number)[],
+    );
   }
   if (pkgConfig) {
     args.package = false;
-    args._ = args._.concat(pkgConfig._ || []);
+    args._ = args._.concat(
+      ((pkgConfig as YargsArguments)._ || []) as (string | number)[],
+    );
   }
 
   args = parse(
-    args._,
+    args._ as string[],
     mocharc,
-    args,
-    envConfig,
-    rcConfig || {},
-    pkgConfig || {},
+    args as Record<string, unknown>,
+    envConfig as Record<string, unknown>,
+    (rcConfig || {}) as Record<string, unknown>,
+    (pkgConfig || {}) as Record<string, unknown>,
   );
 
   // recombine positional arguments and "spec"
   if (args.spec) {
-    args._ = args._.concat(args.spec);
+    args._ = args._.concat(args.spec as (string | number)[]);
     delete args.spec;
   }
 

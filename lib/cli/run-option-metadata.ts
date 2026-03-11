@@ -9,10 +9,17 @@
 
 /**
  * Dictionary of yargs option types to list of options having said type
- * @type {Record<string, string[]>}
  * @private
  */
-const TYPES = (exports.types = {
+interface OptionTypes {
+  array: string[];
+  boolean: string[];
+  number: string[];
+  string: string[];
+  [key: string]: string[];
+}
+
+const TYPES: OptionTypes = (exports.types = {
   array: [
     "extension",
     "file",
@@ -68,7 +75,6 @@ const TYPES = (exports.types = {
 /**
  * Option aliases keyed by canonical option name.
  * Arrays used to reduce
- * @type {Record<string, string[]>}
  * @private
  */
 exports.aliases = {
@@ -92,48 +98,48 @@ exports.aliases = {
   timeout: ["t", "timeouts"],
   ui: ["u"],
   watch: ["w"],
-};
+} as Record<string, string[]>;
 
-const ALL_MOCHA_FLAGS = Object.keys(TYPES).reduce((acc, key) => {
-  // gets all flags from each of the fields in `types`, adds those,
-  // then adds aliases of each flag (if any)
-  TYPES[key].forEach((flag) => {
-    acc.add(flag);
-    const aliases = exports.aliases[flag] || [];
-    aliases.forEach((alias) => {
-      acc.add(alias);
+const ALL_MOCHA_FLAGS: Set<string> = Object.keys(TYPES).reduce<Set<string>>(
+  (acc, key) => {
+    // gets all flags from each of the fields in `types`, adds those,
+    // then adds aliases of each flag (if any)
+    TYPES[key].forEach((flag: string) => {
+      acc.add(flag);
+      const flagAliases: string[] =
+        (exports.aliases as Record<string, string[]>)[flag] || [];
+      flagAliases.forEach((alias: string) => {
+        acc.add(alias);
+      });
     });
-  });
-  return acc;
-}, new Set());
+    return acc;
+  },
+  new Set<string>(),
+);
 
 /**
  * Returns `true` if the provided `flag` is known to Mocha.
- * @param {string} flag - Flag to check
- * @returns {boolean} If `true`, this is a Mocha flag
  * @private
  */
-exports.isMochaFlag = (flag) => {
+exports.isMochaFlag = (flag: string): boolean => {
   return ALL_MOCHA_FLAGS.has(flag.replace(/^--?/, ""));
 };
 
 /**
  * Returns expected yarg option type for a given mocha flag.
- * @param {string} flag - Flag to check (can be with or without leading dashes "--"")
- * @returns {string | undefined} - If flag is a valid mocha flag, the expected type of argument for this flag is returned, otherwise undefined is returned.
  * @private
  */
-exports.expectedTypeForFlag = (flag) => {
+exports.expectedTypeForFlag = (flag: string): string | undefined => {
   const normalizedName = flag.replace(/^--?/, "");
 
-  // If flag is an alias, get it's full name.
-  const aliases = exports.aliases;
-  const fullFlagName =
-    Object.keys(aliases).find((flagName) =>
-      aliases[flagName].includes(normalizedName),
+  // If flag is an alias, get its full name.
+  const flagAliases = exports.aliases as Record<string, string[]>;
+  const fullFlagName: string =
+    Object.keys(flagAliases).find((flagName: string) =>
+      flagAliases[flagName].includes(normalizedName),
     ) || normalizedName;
 
-  return Object.keys(TYPES).find((flagType) =>
+  return Object.keys(TYPES).find((flagType: string) =>
     TYPES[flagType].includes(fullFlagName),
   );
 };

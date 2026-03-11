@@ -1,28 +1,80 @@
 "use strict";
 
-const debug = require("debug")("mocha:cli:watch");
-const path = require("node:path");
-const chokidar = require("chokidar");
-const glob = require("glob");
-const isPathInside = require("is-path-inside");
-const { minimatch } = require("minimatch");
-const Context = require("../context");
-const collectFiles = require("./collect-files");
-const { logSymbols } = require("../utils");
+import type { FSWatcher } from "chokidar" with {
+  "resolution-mode": "import",
+};
+import type {
+  BeforeWatchRun,
+  FileCollectionOptions,
+  PathFilter,
+  PathMatcher,
+  PathPattern,
+  Rerunner,
+} from "../types.d.ts";
 
 /**
- * @typedef {import('chokidar').FSWatcher} FSWatcher
- * @typedef {import('glob').Glob['patterns'][number]} Pattern
- * The `Pattern` class is not exported by the `glob` package.
- * Ref [link](../../node_modules/glob/dist/commonjs/pattern.d.ts).
- * @typedef {import('../mocha.js')} Mocha
- * @typedef {import('../types.d.ts').BeforeWatchRun} BeforeWatchRun
- * @typedef {import('../types.d.ts').FileCollectionOptions} FileCollectionOptions
- * @typedef {import('../types.d.ts').Rerunner} Rerunner
- * @typedef {import('../types.d.ts').PathPattern} PathPattern
- * @typedef {import('../types.d.ts').PathFilter} PathFilter
- * @typedef {import('../types.d.ts').PathMatcher} PathMatcher
+ * The `Pattern` class from the `glob` package is not exported publicly.
+ * This interface mirrors the subset we use.
+ * @see node_modules/glob/dist/commonjs/pattern.d.ts
+ * @private
  */
+interface GlobPattern {
+  pattern(): string | RegExp | symbol;
+  globString(): string;
+  rest(): GlobPattern | null;
+}
+
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:watch");
+const path: typeof import("node:path") = require("node:path");
+const chokidar: { watch: (paths: string[], opts: Record<string, unknown>) => FSWatcher } =
+  require("chokidar");
+const glob: {
+  Glob: new (
+    pattern: string,
+    opts: Record<string, unknown>,
+  ) => { patterns: GlobPattern[] };
+} = require("glob");
+const isPathInside: (childPath: string, parentPath: string) => boolean =
+  require("is-path-inside");
+const { minimatch }: { minimatch: (file: string, pattern: string, opts?: Record<string, unknown>) => boolean } =
+  require("minimatch");
+const Context: new () => Record<string, unknown> = require("../context");
+const collectFiles: (
+  params: FileCollectionOptions,
+) => { files: string[]; unmatchedFiles: { pattern: string; absolutePath: string }[] } =
+  require("./collect-files");
+const { logSymbols }: { logSymbols: Record<string, string> } =
+  require("../utils");
+
+// Forward-declared Mocha type for re-require pattern
+type MochaInstance = Record<string, unknown> & {
+  suite: Record<string, unknown> & {
+    clone: () => Record<string, unknown>;
+    ctx: Record<string, unknown>;
+  };
+  options: Record<string, unknown> & {
+    ui?: string;
+    rootHooks?: unknown;
+  };
+  dispose: () => void;
+  unloadFiles: () => void;
+  files: string[];
+  ui: (name?: string) => MochaInstance;
+  rootHooks: (hooks: unknown) => MochaInstance;
+  lazyLoadFiles: (flag: boolean) => MochaInstance;
+  loadFilesAsync: () => Promise<void>;
+  run: (fn?: (failures: number) => void) => RunnerInstance;
+  enableGlobalSetup: (enabled: boolean) => MochaInstance;
+  enableGlobalTeardown: (enabled: boolean) => MochaInstance;
+  runGlobalSetup: (context?: unknown) => Promise<unknown>;
+  runGlobalTeardown: (context?: unknown) => Promise<void>;
+  hasGlobalTeardownFixtures: () => boolean;
+};
+
+type RunnerInstance = {
+  abort: () => void;
+};
 
 /**
  * Exports the `watchRun` function that runs mocha in "watch" mode.
@@ -33,28 +85,22 @@ const { logSymbols } = require("../utils");
 
 /**
  * Run Mocha in parallel "watch" mode
- * @param {Mocha} mocha - Mocha instance
- * @param {Object} opts - Options
- * @param {string[]} [opts.watchFiles] - List of paths and patterns to
- *   watch. If not provided all files with an extension included in
- *   `fileCollectionParams.extension` are watched. See first argument of
- *   `chokidar.watch`.
- * @param {string[]} opts.watchIgnore - List of paths and patterns to
- *   exclude from watching. See `ignored` option of `chokidar`.
- * @param {FileCollectionOptions} fileCollectParams - Parameters that control test
  * @private
  */
 exports.watchParallelRun = (
-  mocha,
-  { watchFiles, watchIgnore },
-  fileCollectParams,
-) => {
+  mocha: MochaInstance,
+  {
+    watchFiles,
+    watchIgnore,
+  }: { watchFiles?: string[]; watchIgnore: string[] },
+  fileCollectParams: FileCollectionOptions,
+): FSWatcher => {
   debug("creating parallel watcher");
 
   return createWatcher(mocha, {
     watchFiles,
     watchIgnore,
-    beforeRun({ mocha }) {
+    beforeRun({ mocha }: { mocha: MochaInstance; watcher: FSWatcher }): MochaInstance {
       // I don't know why we're cloning the root suite.
       const rootSuite = mocha.suite.clone();
 
@@ -64,13 +110,14 @@ exports.watchParallelRun = (
       // this `require` is needed because the require cache has been cleared.  the dynamic
       // exports set via the below call to `mocha.ui()` won't work properly if a
       // test depends on this module.
-      const Mocha = require("../mocha");
+      const Mocha: new (opts: Record<string, unknown>) => MochaInstance =
+        require("../mocha");
 
       // ... and now that we've gotten a new module, we need to use it again due
       // to `mocha.ui()` call
       const newMocha = new Mocha(mocha.options);
       // don't know why this is needed
-      newMocha.suite = rootSuite;
+      newMocha.suite = rootSuite as MochaInstance["suite"];
       // nor this
       newMocha.suite.ctx = new Context();
 
@@ -96,25 +143,22 @@ exports.watchParallelRun = (
 
 /**
  * Run Mocha in "watch" mode
- * @param {Mocha} mocha - Mocha instance
- * @param {Object} opts - Options
- * @param {string[]} [opts.watchFiles] - List of paths and patterns to
- *   watch. If not provided all files with an extension included in
- *   `fileCollectionParams.extension` are watched. See first argument of
- *   `chokidar.watch`.
- * @param {string[]} opts.watchIgnore - List of paths and patterns to
- *   exclude from watching. See `ignored` option of `chokidar`.
- * @param {FileCollectionOptions} fileCollectParams - Parameters that control test
- *   file collection. See `lib/cli/collect-files.js`.
  * @private
  */
-exports.watchRun = (mocha, { watchFiles, watchIgnore }, fileCollectParams) => {
+exports.watchRun = (
+  mocha: MochaInstance,
+  {
+    watchFiles,
+    watchIgnore,
+  }: { watchFiles?: string[]; watchIgnore: string[] },
+  fileCollectParams: FileCollectionOptions,
+): FSWatcher => {
   debug("creating serial watcher");
 
   return createWatcher(mocha, {
     watchFiles,
     watchIgnore,
-    beforeRun({ mocha }) {
+    beforeRun({ mocha }: { mocha: MochaInstance; watcher: FSWatcher }): MochaInstance {
       mocha.unloadFiles();
 
       // I don't know why we're cloning the root suite.
@@ -126,13 +170,14 @@ exports.watchRun = (mocha, { watchFiles, watchIgnore }, fileCollectParams) => {
       // this `require` is needed because the require cache has been cleared.  the dynamic
       // exports set via the below call to `mocha.ui()` won't work properly if a
       // test depends on this module.
-      const Mocha = require("../mocha");
+      const Mocha: new (opts: Record<string, unknown>) => MochaInstance =
+        require("../mocha");
 
       // ... and now that we've gotten a new module, we need to use it again due
       // to `mocha.ui()` call
       const newMocha = new Mocha(mocha.options);
       // don't know why this is needed
-      newMocha.suite = rootSuite;
+      newMocha.suite = rootSuite as MochaInstance["suite"];
       // nor this
       newMocha.suite.ctx = new Context();
 
@@ -156,54 +201,34 @@ exports.watchRun = (mocha, { watchFiles, watchIgnore }, fileCollectParams) => {
 /**
  * Extracts out paths without the glob part, the directory paths,
  * and the paths for matching from the provided glob paths.
- * @param {string[]} globPaths The list of glob paths to create a filter for.
- * @param {string} basePath The path where mocha is run (e.g., current working directory).
- * @returns {PathFilter} Object to filter paths.
- * @ignore
  * @private
  */
-function createPathFilter(globPaths, basePath) {
+function createPathFilter(globPaths: string[], basePath: string): PathFilter {
   debug("creating path filter from glob paths: %s", globPaths);
 
-  /**
-   * The resulting object to filter paths.
-   * @type {PathFilter}
-   */
-  const res = {
-    dir: { paths: new Set(), globs: new Set() },
-    match: { paths: new Set(), globs: new Set() },
+  const res: PathFilter = {
+    dir: { paths: new Set<string>(), globs: new Set<string>() },
+    match: { paths: new Set<string>(), globs: new Set<string>() },
   };
 
   // for checking if a path ends with `/**/*`
   const globEnd = path.join(path.sep, "**", "*");
 
-  /**
-   * The current glob pattern to check.
-   * @type {Pattern[]}
-   */
-  const patterns = globPaths.flatMap((globPath) => {
+  const patterns: GlobPattern[] = globPaths.flatMap((globPath: string) => {
     return new glob.Glob(globPath, {
       dot: true,
       magicalBraces: true,
       windowsPathsNoEscape: true,
     }).patterns;
-  }, []);
+  });
 
   // each pattern will have its own path because of the `magicalBraces` option
   for (const pattern of patterns) {
     debug("processing glob pattern: %s", pattern.globString());
 
-    /**
-     * Path segments before the glob pattern.
-     * @type {string[]}
-     */
-    const segments = [];
+    const segments: string[] = [];
 
-    /**
-     * The current glob pattern to check.
-     * @type {Pattern | null}
-     */
-    let currentPattern = pattern;
+    let currentPattern: GlobPattern | null = pattern;
     let isGlob = false;
 
     do {
@@ -253,14 +278,13 @@ function createPathFilter(globPaths, basePath) {
 
 /**
  * Checks if the provided path matches with the path pattern.
- * @param {string} filePath The path to match.
- * @param {PathPattern} pattern The path pattern for matching.
- * @param {boolean} [matchParent] Treats the provided path as a match if it's a valid parent directory from the list of paths.
- * @returns {boolean} Determines if the provided path matches the pattern.
- * @ignore
  * @private
  */
-function matchPattern(filePath, pattern, matchParent) {
+function matchPattern(
+  filePath: string,
+  pattern: PathPattern,
+  matchParent?: boolean,
+): boolean {
   if (pattern.paths.has(filePath)) {
     return true;
   }
@@ -287,14 +311,13 @@ function matchPattern(filePath, pattern, matchParent) {
 
 /**
  * Creates an object for matching allowed or ignored file paths.
- * @param {PathFilter} allowed The filter for allowed paths.
- * @param {PathFilter} ignored The filter for ignored paths.
- * @param {string} basePath The path where mocha is run (e.g., current working directory).
- * @returns {PathMatcher} The object for matching paths.
- * @ignore
  * @private
  */
-function createPathMatcher(allowed, ignored, basePath) {
+function createPathMatcher(
+  allowed: PathFilter,
+  ignored: PathFilter,
+  basePath: string,
+): PathMatcher {
   debug(
     "creating path matcher from allowed: %o, ignored: %o",
     allowed,
@@ -303,38 +326,30 @@ function createPathMatcher(allowed, ignored, basePath) {
 
   /**
    * Cache of known file paths processed by `matcher.allow()`.
-   * @type {Map<string, boolean>}
    */
-  const allowCache = new Map();
+  const allowCache = new Map<string, boolean>();
 
   /**
    * Cache of known file paths processed by `matcher.ignore()`.
-   * @type {Map<string, boolean>}
    */
-  const ignoreCache = new Map();
+  const ignoreCache = new Map<string, boolean>();
 
   const MAX_CACHE_SIZE = 10000;
 
   /**
    * Performs a `map.set()` but will delete the first key
    * for new key-value pairs whenever the limit is reached.
-   * @param {Map<string, boolean>} map The map to use.
-   * @param {string} key The key to use.
-   * @param {boolean} value The value to set.
    */
-  function cache(map, key, value) {
+  function cache(map: Map<string, boolean>, key: string, value: boolean): void {
     // only delete the first key if the key doesn't exist in the map
     if (map.size >= MAX_CACHE_SIZE && !map.has(key)) {
-      map.delete(map.keys().next().value);
+      map.delete(map.keys().next().value!);
     }
     map.set(key, value);
   }
 
-  /**
-   * @type {PathMatcher}
-   */
-  const matcher = {
-    allow(filePath) {
+  const matcher: PathMatcher = {
+    allow(filePath: string): boolean {
       let allow = allowCache.get(filePath);
       if (allow !== undefined) {
         return allow;
@@ -345,7 +360,7 @@ function createPathMatcher(allowed, ignored, basePath) {
       return allow;
     },
 
-    ignore(filePath, stats) {
+    ignore(filePath: string, stats?: { isDirectory: () => boolean }): boolean {
       // Chokidar calls the ignore match function twice:
       // once without `stats` and again with `stats`
       // see `ignored` under https://github.com/paulmillr/chokidar?tab=readme-ov-file#path-filtering
@@ -385,34 +400,30 @@ function createPathMatcher(allowed, ignored, basePath) {
   return matcher;
 }
 
+interface CreateWatcherOptions {
+  watchFiles?: string[];
+  watchIgnore: string[];
+  beforeRun?: BeforeWatchRun;
+  fileCollectParams: FileCollectionOptions;
+}
+
 /**
  * Bootstraps a Chokidar watcher. Handles keyboard input & signals
- * @param {Mocha} mocha - Mocha instance
- * @param {Object} opts
- * @param {BeforeWatchRun} [opts.beforeRun] - Function to call before
- * `mocha.run()`
- * @param {string[]} [opts.watchFiles] - List of paths and patterns to watch. If
- *   not provided all files with an extension included in
- *   `fileCollectionParams.extension` are watched. See first argument of
- *   `chokidar.watch`.
- * @param {string[]} [opts.watchIgnore] - List of paths and patterns to exclude
- *   from watching. See `ignored` option of `chokidar`.
- * @param {FileCollectionOptions} opts.fileCollectParams - List of extensions to watch if `opts.watchFiles` is not given.
- * @returns {FSWatcher}
- * @ignore
  * @private
  */
 const createWatcher = (
-  mocha,
-  { watchFiles, watchIgnore, beforeRun, fileCollectParams },
-) => {
+  mocha: MochaInstance,
+  { watchFiles, watchIgnore, beforeRun, fileCollectParams }: CreateWatcherOptions,
+): FSWatcher => {
   if (!watchFiles) {
-    watchFiles = fileCollectParams.extension.map((ext) => `**/*.${ext}`);
+    watchFiles = (fileCollectParams.extension || []).map(
+      (ext: string) => `**/*.${ext}`,
+    );
   }
 
   debug("watching files: %s", watchFiles);
   debug("ignoring files matching: %s", watchIgnore);
-  let globalFixtureContext;
+  let globalFixtureContext: unknown;
 
   // we handle global fixtures manually
   mocha.enableGlobalSetup(false).enableGlobalTeardown(false);
@@ -429,10 +440,10 @@ const createWatcher = (
   const matcher = createPathMatcher(allowed, ignored, basePath);
 
   // Chokidar has to watch the directory paths in case new files are created
-  const watcher = chokidar.watch(Array.from(allowed.dir.paths), {
+  const watcher: FSWatcher = chokidar.watch(Array.from(allowed.dir.paths), {
     ignoreInitial: true,
     ignored: matcher.ignore,
-  });
+  }) as FSWatcher;
 
   const rerunner = createRerunner(mocha, watcher, {
     beforeRun,
@@ -447,7 +458,7 @@ const createWatcher = (
     rerunner.run();
   });
 
-  watcher.on("all", (_event, filePath) => {
+  watcher.on("all", (_event: string, filePath: string) => {
     // only allow file paths that match the allowed patterns
     if (matcher.allow(filePath)) {
       rerunner.scheduleRun();
@@ -468,7 +479,7 @@ const createWatcher = (
   // there may be another way to solve this, but it too will be a hack.
   // for our watch tests on win32 we must _fork_ mocha with an IPC channel
   if (process.connected) {
-    process.on("message", (msg) => {
+    process.on("message", (msg: unknown) => {
       if (msg === "SIGINT") {
         process.emit("SIGINT");
       }
@@ -496,7 +507,7 @@ const createWatcher = (
   // Keyboard shortcut for restarting when "rs\n" is typed (ala Nodemon)
   process.stdin.resume();
   process.stdin.setEncoding("utf8");
-  process.stdin.on("data", (data) => {
+  process.stdin.on("data", (data: Buffer | string) => {
     const str = data.toString().trim().toLowerCase();
     if (str === "rs") rerunner.scheduleRun();
   });
@@ -504,28 +515,31 @@ const createWatcher = (
   return watcher;
 };
 
+interface CreateRerunnerOptions {
+  beforeRun?: BeforeWatchRun;
+}
+
 /**
  * Create an object that allows you to rerun tests on the mocha instance.
- *
- * @param {Mocha} mocha - Mocha instance
- * @param {FSWatcher} watcher - Chokidar `FSWatcher` instance
- * @param {Object} [opts] - Options!
- * @param {BeforeWatchRun} [opts.beforeRun] - Function to call before `mocha.run()`
- * @returns {Rerunner}
- * @ignore
  * @private
  */
-const createRerunner = (mocha, watcher, { beforeRun } = {}) => {
+const createRerunner = (
+  mocha: MochaInstance,
+  watcher: FSWatcher,
+  { beforeRun }: CreateRerunnerOptions = {},
+): Rerunner => {
   // Set to a `Runner` when mocha is running. Set to `null` when mocha is not
   // running.
-  let runner = null;
+  let runner: RunnerInstance | null = null;
 
   // true if a file has changed during a test run
   let rerunScheduled = false;
 
-  const run = () => {
+  const run = (): void => {
     try {
-      mocha = beforeRun ? beforeRun({ mocha, watcher }) || mocha : mocha;
+      mocha = beforeRun
+        ? (beforeRun({ mocha, watcher } as Parameters<BeforeWatchRun>[0]) as unknown as MochaInstance) || mocha
+        : mocha;
       runner = mocha.run(() => {
         debug("finished watch run");
         runner = null;
@@ -536,12 +550,12 @@ const createRerunner = (mocha, watcher, { beforeRun } = {}) => {
           console.error(`${logSymbols.info} [mocha] waiting for changes...`);
         }
       });
-    } catch (err) {
-      console.error(err.stack);
+    } catch (err: unknown) {
+      console.error((err as Error).stack);
     }
   };
 
-  const scheduleRun = () => {
+  const scheduleRun = (): void => {
     if (rerunScheduled) {
       return;
     }
@@ -554,7 +568,7 @@ const createRerunner = (mocha, watcher, { beforeRun } = {}) => {
     }
   };
 
-  const rerun = () => {
+  const rerun = (): void => {
     rerunScheduled = false;
     eraseLine();
     run();
@@ -568,18 +582,14 @@ const createRerunner = (mocha, watcher, { beforeRun } = {}) => {
 
 /**
  * Return the list of absolute paths watched by a Chokidar watcher.
- *
- * @param watcher - Instance of a Chokidar watcher
- * @return {string[]} - List of absolute paths
- * @ignore
  * @private
  */
-const getWatchedFiles = (watcher) => {
-  const watchedDirs = watcher.getWatched();
-  return Object.keys(watchedDirs).reduce(
+const getWatchedFiles = (watcher: FSWatcher): string[] => {
+  const watchedDirs: Record<string, string[]> = watcher.getWatched();
+  return Object.keys(watchedDirs).reduce<string[]>(
     (acc, dir) => [
       ...acc,
-      ...watchedDirs[dir].map((file) => path.join(dir, file)),
+      ...watchedDirs[dir].map((file: string) => path.join(dir, file)),
     ],
     [],
   );
@@ -587,19 +597,17 @@ const getWatchedFiles = (watcher) => {
 
 /**
  * Hide the cursor.
- * @ignore
  * @private
  */
-const hideCursor = () => {
+const hideCursor = (): void => {
   process.stdout.write("\u001b[?25l");
 };
 
 /**
  * Show the cursor.
- * @ignore
  * @private
  */
-const showCursor = () => {
+const showCursor = (): void => {
   process.stdout.write("\u001b[?25h");
 };
 
@@ -607,19 +615,17 @@ const showCursor = () => {
  * Erases the line on stdout
  * @private
  */
-const eraseLine = () => {
+const eraseLine = (): void => {
   process.stdout.write("\u001b[2K");
 };
 
 /**
  * Blast all of the watched files out of `require.cache`
- * @param {FSWatcher} watcher - Chokidar FSWatcher
- * @ignore
  * @private
  */
-const blastCache = (watcher) => {
+const blastCache = (watcher: FSWatcher): void => {
   const files = getWatchedFiles(watcher);
-  files.forEach((file) => {
+  files.forEach((file: string) => {
     delete require.cache[file];
   });
   debug("deleted %d file(s) from the require cache", files.length);

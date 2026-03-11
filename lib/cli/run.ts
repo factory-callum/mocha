@@ -7,12 +7,28 @@
  * @private
  */
 
-const pc = require("picocolors");
-const Mocha = require("../mocha");
+import type { Argv } from "yargs";
+
+const pc: typeof import("picocolors") = require("picocolors");
+const Mocha: new (opts: Record<string, unknown>) => MochaRunInstance =
+  require("../mocha");
 const {
   createUnsupportedError,
   createInvalidArgumentValueError,
   createMissingArgumentError,
+}: {
+  createUnsupportedError: (message: string) => Error;
+  createInvalidArgumentValueError: (
+    message: string,
+    argument: string,
+    value: unknown,
+    reason?: string,
+  ) => Error;
+  createMissingArgumentError: (
+    message: string,
+    argument: string,
+    expected: string,
+  ) => Error;
 } = require("../errors");
 
 const {
@@ -20,18 +36,52 @@ const {
   handleRequires,
   validateLegacyPlugin,
   runMocha,
+}: {
+  list: (str: string | string[]) => string[];
+  handleRequires: (
+    requires?: string[],
+    opts?: { ignoredPlugins?: string[] },
+  ) => Promise<Record<string, unknown>>;
+  validateLegacyPlugin: (
+    opts: Record<string, unknown>,
+    pluginType: "reporter" | "ui",
+    map?: Record<string, unknown>,
+  ) => void;
+  runMocha: (
+    mocha: MochaRunInstance,
+    options: Record<string, unknown>,
+  ) => Promise<unknown>;
 } = require("./run-helpers");
-const { ONE_AND_DONES, ONE_AND_DONE_ARGS } = require("./one-and-dones");
-const debug = require("debug")("mocha:cli:run");
-const defaults = require("../mocharc.json");
-const { types, aliases } = require("./run-option-metadata");
-const { isCI, logSymbols } = require("../utils");
+const { ONE_AND_DONES, ONE_AND_DONE_ARGS }: {
+  ONE_AND_DONES: Record<string, (yargs: Argv) => void>;
+  ONE_AND_DONE_ARGS: Set<string>;
+} = require("./one-and-dones");
+const debug: (...args: unknown[]) => void =
+  require("debug")("mocha:cli:run");
+const defaults: Record<string, unknown> = require("../mocharc.json");
+const { types, aliases }: {
+  types: { array: string[]; boolean: string[]; number: string[]; string: string[]; [key: string]: string[] };
+  aliases: Record<string, string[]>;
+} = require("./run-option-metadata");
+const { isCI, logSymbols }: {
+  isCI: () => boolean;
+  logSymbols: Record<string, string>;
+} = require("../utils");
+
+interface MochaRunInstance {
+  run: (fn?: (failures: number) => void) => unknown;
+  [key: string]: unknown;
+}
+
+interface MochaStatic {
+  reporters: Record<string, unknown>;
+  interfaces: Record<string, unknown>;
+}
 
 /**
  * Logical option groups
- * @constant
  */
-const GROUPS = {
+const GROUPS: Record<string, string> = {
   FILES: "File Handling",
   FILTERS: "Test Filters",
   NODEJS: "Node.js & V8",
@@ -44,7 +94,7 @@ exports.command = ["$0 [spec..]", "inspect"];
 
 exports.describe = "Run tests with Mocha";
 
-exports.builder = (yargs) =>
+exports.builder = (yargs: Argv): Argv =>
   yargs
     .options({
       "allow-uncaught": {
@@ -146,7 +196,7 @@ exports.builder = (yargs) =>
         requiresArg: true,
       },
       grep: {
-        coerce: (value) => (!value ? null : value),
+        coerce: (value: unknown): unknown => (!value ? null : value),
         conflicts: "fgrep",
         description: "Only run tests matching this string or regexp",
         group: GROUPS.FILTERS,
@@ -176,13 +226,13 @@ exports.builder = (yargs) =>
       },
       "list-interfaces": {
         conflicts: Array.from(ONE_AND_DONE_ARGS).filter(
-          (arg) => arg !== "list-interfaces",
+          (arg: string) => arg !== "list-interfaces",
         ),
         description: "List built-in user interfaces & exit",
       },
       "list-reporters": {
         conflicts: Array.from(ONE_AND_DONE_ARGS).filter(
-          (arg) => arg !== "list-reporters",
+          (arg: string) => arg !== "list-reporters",
         ),
         description: "List built-in reporters & exit",
       },
@@ -221,8 +271,10 @@ exports.builder = (yargs) =>
         requiresArg: true,
       },
       "reporter-option": {
-        coerce: (opts) =>
-          list(opts).reduce((acc, opt) => {
+        coerce: (opts: unknown): Record<string, string | boolean> =>
+          list(opts as string | string[]).reduce<
+            Record<string, string | boolean>
+          >((acc, opt) => {
             const pair = opt.split("=");
 
             if (pair.length > 2 || !pair.length) {
@@ -292,11 +344,11 @@ exports.builder = (yargs) =>
     .positional("spec", {
       default: ["test"],
       description: "One or more files, directories, or globs to test",
-      type: "array",
+      type: "array" as unknown as "string",
     })
-    .check((argv) => {
+    .check((argv: Record<string, unknown>) => {
       // "one-and-dones"; let yargs handle help and version
-      Object.keys(ONE_AND_DONES).forEach((opt) => {
+      Object.keys(ONE_AND_DONES).forEach((opt: string) => {
         if (argv[opt]) {
           ONE_AND_DONES[opt].call(null, yargs);
           process.exit();
@@ -348,18 +400,18 @@ exports.builder = (yargs) =>
 
       return true;
     })
-    .middleware(async (argv, yargs) => {
+    .middleware(async (argv: Record<string, unknown>) => {
       // currently a failing middleware does not work nicely with yargs' `fail()`.
       try {
         // load requires first, because it can impact "plugin" validation
-        const plugins = await handleRequires(argv.require);
-        validateLegacyPlugin(argv, "reporter", Mocha.reporters);
-        validateLegacyPlugin(argv, "ui", Mocha.interfaces);
+        const plugins = await handleRequires(argv.require as string[] | undefined);
+        validateLegacyPlugin(argv, "reporter", (Mocha as unknown as MochaStatic).reporters);
+        validateLegacyPlugin(argv, "ui", (Mocha as unknown as MochaStatic).interfaces);
         Object.assign(argv, plugins);
       } catch (err) {
         // this could be a bad --require, bad reporter, ui, etc.
         console.error(`\n${logSymbols.error} ${pc.red("ERROR:")}`, err);
-        yargs.exit(1);
+        yargs.exit(1, new Error(String(err)));
       }
     })
     .array(types.array)
@@ -368,7 +420,7 @@ exports.builder = (yargs) =>
     .number(types.number)
     .alias(aliases);
 
-exports.handler = async function (argv) {
+exports.handler = async function (argv: Record<string, unknown>): Promise<void> {
   debug("post-yargs config", argv);
   const mocha = new Mocha(argv);
 
