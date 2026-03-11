@@ -1,0 +1,26 @@
+{
+  "featureId": "core-domain",
+  "reviewedAt": "2026-03-11T04:23:07Z",
+  "commitId": "fc277fa8b7660a602782277b4e30a68218f1e7dc",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The TypeScript migration for runnable, test, stats-collector, and suite preserves runtime behavior and module export patterns while satisfying the feature scope.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The migration-worker skill lacks guidance on two pitfalls encountered in this feature: TDZ hazards when replacing var with let/const in callback result capture, and eslint-disable directives in .ts leaking into compiled .js lint behavior.",
+      "evidence": "handoffs/2026-03-11T03-55-16-733Z__core-domain__55396928-62eb-4fe1-8fab-363e2205932a.json (handoff.skillFeedback.suggestedChanges) explicitly calls out both gaps; .factory/skills/migration-worker/SKILL.md currently contains no TDZ or eslint-disable leakage guidance."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Shared architecture notes are stale for core domain hierarchy after this migration and still reference pre-migration .js paths.",
+      "evidence": "/home/ec2-user/workspace/mocha/.factory/library/architecture.md lines 19-22 still list lib/runnable.js, lib/test.js, and lib/suite.js even though this feature migrated those files to .ts."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed feature core-domain (commit fc277fa8b7660a602782277b4e30a68218f1e7dc): transcript skeleton and diff were examined, no blocking or non-blocking implementation defects were identified, and two shared-state documentation/skill gaps were noted."
+}

@@ -1,0 +1,28 @@
+{
+  "featureId": "core-runner",
+  "reviewedAt": "2026-03-11T04:23:41Z",
+  "commitId": "4f26af7ceab562528b03c2a1ea83e3c2ba8ee92b",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The migration correctly renames runner.js to runner.ts, preserves runtime behavior, and includes the requested ESLint globalIgnores for compiled lib/**/*.js and lib/**/*.js.map. However, one required behavior is not fully met: runner event constants are not actually typed as string literals in a way TypeScript can enforce.",
+    "issues": [
+      {
+        "file": "lib/runner.ts",
+        "line": 129,
+        "severity": "blocking",
+        "description": "Feature expectation 'All event constants typed as string literals' is not satisfied. `constants` is created via `utils.defineConstants(...)`, whose current signature returns `Readonly<Record<string, unknown>>` (lib/utils.ts:555-557), so literal event values are widened/erased. This is visible in downstream casts like `this.state = constants.STATE_IDLE as string` (lib/runner.ts:294, 1269, 1287), indicating the event/state constants are not strongly typed literal unions."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The migration guidance says to type EventEmitter event names as string literals, but shared utility typing currently erases literal types when using `utils.defineConstants`, making this requirement easy to miss.",
+      "evidence": "migration-worker SKILL.md (Type Quality + EventEmitter guidance) vs lib/utils.ts:555-557 (`defineConstants(obj: Record<string, unknown>): Readonly<Record<string, unknown>>`) and lib/runner.ts casts (`as string`) at lines 294/1269/1287."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed core-runner (commit 4f26af7ceab562528b03c2a1ea83e3c2ba8ee92b): migration and ESLint ignore fix are largely correct, but the required string-literal typing for Runner constants is not actually enforced by current types, so this review is marked fail with one blocking issue."
+}

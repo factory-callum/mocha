@@ -1,0 +1,33 @@
+{
+  "featureId": "core-mocha",
+  "reviewedAt": "2026-03-11T04:23:36Z",
+  "commitId": "f0f4da18",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The migration covers both target files (`lib/mocha.ts` and `lib/plugin-loader.ts`), preserves the CommonJS export pattern (`exports = module.exports = Mocha`), and retains runtime behavior expected by existing tests. I did not find blocking regressions in the feature scope.",
+    "issues": [
+      {
+        "file": "lib/plugin-loader.ts",
+        "line": 41,
+        "severity": "non_blocking",
+        "description": "`PluginLoaderConstructorOptions.pluginDefs` is typed only as `PluginDefinition[]`, while runtime behavior still supports singular values via `castArray(...)`. This is a minor typing mismatch that may force unnecessary casts for typed callers of `PluginLoader.create(...)`."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "There is an unresolved typing quirk around plugin loader options: `lib/types.d.ts` declares `pluginDefs` as singular, while runtime code supports array/singular via `castArray`. The worker added a local workaround type in `plugin-loader.ts`, but this mismatch is not documented in shared library knowledge.",
+      "evidence": "lib/types.d.ts:328 (`pluginDefs?: PluginDefinition`), lib/plugin-loader.ts:40-42 (local constructor options type), handoff `discoveredIssues` for session c54e8983-f324-4490-a29a-8aae82fa49b3"
+    },
+    {
+      "area": "knowledge",
+      "observation": "Shared architecture docs are stale about build behavior and can mislead workers: they still state there is no compilation step even though services and workflow use `npx tsc` emit.",
+      "evidence": ".factory/library/architecture.md:37, .factory/services.yaml:3-4"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed feature `core-mocha` for session `c54e8983-f324-4490-a29a-8aae82fa49b3` at commit `f0f4da18`. Diff and transcript skeleton were reviewed; migration is functionally sound and meets feature requirements. One non-blocking typing mismatch was noted plus two shared-state knowledge gaps."
+}

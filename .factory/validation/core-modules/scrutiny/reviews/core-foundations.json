@@ -1,0 +1,26 @@
+{
+  "featureId": "core-foundations",
+  "reviewedAt": "2026-03-11T04:23:17Z",
+  "commitId": "0234771874d8d917f99be67a8d2c8bc49fa82313",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The migration cleanly renames and types the three foundational modules (error-constants, errors, utils) while preserving CommonJS runtime behavior and expected exports. The diff is primarily type-annotation work with no material functional regressions identified, and the handoff verification evidence matches feature expectations.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The feature description's dependency note is incorrect and can mislead workers about migration order.",
+      "evidence": "features.json:425 says 'utils.js imports from errors.js' and prescribes error-constants -> errors -> utils; handoff notes the opposite in 2026-03-11T03-32-04-593Z__core-foundations__a943fe99-c5c9-402d-9160-df463e3ca656.json:52 ('errors.js actually imports from utils.js ... correct dependency order is error-constants -> utils -> errors')."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Library architecture notes are stale about compilation behavior and can cause confusion during migration work.",
+      "evidence": ".factory/library/architecture.md:37 says 'No compilation step currently (tsconfig is noEmit check-only)', but .factory/services.yaml:3 defines 'compile: npx tsc' and this mission relies on emitted lib/*.js outputs."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed core-foundations (commit 0234771874d8d917f99be67a8d2c8bc49fa82313): implementation satisfies the feature description and expected behavior, with no code issues found. Report includes two shared-state observations about incorrect dependency guidance and stale architecture notes."
+}
