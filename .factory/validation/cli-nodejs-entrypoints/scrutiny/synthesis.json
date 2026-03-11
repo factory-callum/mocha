@@ -1,0 +1,62 @@
+{
+  "milestone": "cli-nodejs-entrypoints",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm run test-node:unit && npm run test-node:reporters && npm run test-node:interfaces",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint:code",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Updated .factory/library/architecture.md to reflect completed TypeScript migration state, current build pipeline, and workerpool typing nuance for Node runtime modules.",
+      "sourceFeature": "browser-and-entrypoints"
+    },
+    {
+      "target": "library",
+      "description": "Updated .factory/library/user-testing.md to align baseline notes with known Node 25 integration/full-suite caveat and milestone-agnostic validation guidance.",
+      "sourceFeature": "cli-run-and-watch"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Reconcile per-feature verification guidance so required commands are consistent (current guidance says to run npm run build after each migration batch, while some feature verification steps omit build).",
+      "evidence": "Observed in cli-core review: AGENTS.md mandates build for each batch, but the feature definition and handoff validation for cli-core used typecheck + unit + lint only.",
+      "isSystemic": true
+    },
+    {
+      "target": "validation-contract.md",
+      "suggestion": "Clarify how known environment-specific failures should be handled for VAL-CLI/VAL-CROSS assertions that currently require full integration/full-suite pass.",
+      "evidence": "Observed in browser-and-entrypoints review: contract requires full integration/full suite pass while AGENTS.md documents known Node 25 integration failures as non-blocking.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add caveat metadata directly to commands.test-full in .factory/services.yaml",
+      "reason": "ambiguous"
+    }
+  ],
+  "previousRound": null
+}

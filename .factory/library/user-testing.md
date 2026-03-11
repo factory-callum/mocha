@@ -50,7 +50,7 @@ npm pack --dry-run   # Verify package contents
 ## Baseline (Pre-Migration)
 - Unit tests: 1107 passing, 3 pending
 - All lint, typecheck, build pass cleanly
-- No pre-existing failures
+- Pre-existing environment-specific failures exist in `npm run test-node:integration` / `npm run test-node` on Node 25 (documented in mission AGENTS guidance)
 
 ## Known Quirks
 - Tests use `unexpected` (not chai) as assertion library
@@ -58,6 +58,7 @@ npm pack --dry-run   # Verify package contents
 - `rewiremock` used for module mocking in node-unit tests - paths must match compiled output
 - The project type is `"commonjs"` in package.json; ESM uses `.mjs` extension
 - On clean checkouts, run `npm run compile` before `npm run lint:code`; eslint-plugin-n resolves runtime `require()` paths that point to compiled `lib/*.js` outputs.
+- Known environment caveat: full integration suite has pre-existing Node 25 failures; prioritize milestone-mapped assertions and treat those failures as non-blocking unless a mission explicitly says otherwise.
 
 ## Flow Validator Guidance: CLI/Terminal Surface
 
@@ -66,4 +67,4 @@ npm pack --dry-run   # Verify package contents
 - Avoid shared mutable setup outside your namespace. If you must emit build artifacts, do it only in the repository `lib/` output path expected by the project.
 - For this milestone, no real user accounts are required. Treat assigned `Account` values as isolation labels only.
 - Prefer deterministic commands from `.factory/services.yaml` (`typecheck`, `compile`, `lint`, `test-unit`, `build`) and record exact outputs/exit codes.
-- Known environment caveat: full integration suite has pre-existing Node 25 failures; for build-infrastructure validation, prioritize the assertions explicitly mapped for this milestone.
+- Known environment caveat: full integration suite has pre-existing Node 25 failures; prioritize the assertions explicitly mapped for the current milestone.

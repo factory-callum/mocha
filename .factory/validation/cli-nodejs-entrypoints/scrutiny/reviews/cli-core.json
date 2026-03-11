@@ -1,0 +1,33 @@
+{
+  "featureId": "cli-core",
+  "reviewedAt": "2026-03-11T06:20:17Z",
+  "commitId": "20331524dd76981029b2dbb80f7ed4054845c46a",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The feature migrates the 9 scoped CLI files to TypeScript with explicit typings and preserved module/export patterns. Feature scope and expected behavior are covered, and validation evidence in transcript/handoff shows clean typecheck, unit tests, and lint. One edge-case behavior drift was identified in recursive file lookup error handling, but it is non-blocking.",
+    "issues": [
+      {
+        "file": "lib/cli/lookup-files.ts",
+        "line": 135,
+        "severity": "non_blocking",
+        "description": "Recursive traversal now guards the recursive call result and silently skips `undefined` results (`lookupFiles(pathname, extensions, recursive)`), whereas prior JS behavior spread the recursive result directly. In edge cases where a nested stat/read race causes the recursive call to return `undefined`, behavior changes from surfacing an error to silently omitting files."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "Mission guidance and feature-level verification expectations are inconsistent about whether `npm run build` is required for each migration feature.",
+      "evidence": "Mission AGENTS.md states 'After each migration batch, verify ... npm run build' (/home/ec2-user/.factory/missions/f7fa2ba7-1fe7-4176-ac4b-6408fe47e513/AGENTS.md:60-64), while this feature's verification steps and handoff verification list only `npx tsc --noEmit`, `npm run test-node:unit`, and `npm run lint:code` (features.json:544-547 and handoffs/2026-03-11T05-36-57-424Z__cli-core__5763a173-bd6e-45f0-80aa-627fcc9b53c2.json)."
+    },
+    {
+      "area": "knowledge",
+      "observation": "Shared architecture notes are stale relative to the ongoing TypeScript migration state.",
+      "evidence": "/home/ec2-user/workspace/mocha/.factory/library/architecture.md still documents core hierarchy paths as `.js` (lines 19-22) and says there is 'No compilation step currently' (line 37), which no longer reflects the migrated codebase and compile workflow."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed feature cli-core (commit 20331524dd76981029b2dbb80f7ed4054845c46a) using handoff, transcript skeleton, skill guidance, and commit diff evidence. Scope coverage and validation evidence are sufficient for pass; one non-blocking edge-case behavior drift and two shared-state documentation/convention observations were recorded."
+}
