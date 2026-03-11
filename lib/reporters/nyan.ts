@@ -1,26 +1,51 @@
 "use strict";
 
 /**
- * @typedef {import('../runner.js')} Runner
- */
-
-/**
  * @module Nyan
  */
 /**
  * Module dependencies.
  */
 
-var Base = require("./base");
-var constants = require("../runner").constants;
-var EVENT_RUN_BEGIN = constants.EVENT_RUN_BEGIN;
-var EVENT_TEST_PENDING = constants.EVENT_TEST_PENDING;
-var EVENT_TEST_PASS = constants.EVENT_TEST_PASS;
-var EVENT_RUN_END = constants.EVENT_RUN_END;
-var EVENT_TEST_FAIL = constants.EVENT_TEST_FAIL;
+const Base = require("./base");
+const constants = require("../runner").constants;
+const EVENT_RUN_BEGIN: string = constants.EVENT_RUN_BEGIN;
+const EVENT_TEST_PENDING: string = constants.EVENT_TEST_PENDING;
+const EVENT_TEST_PASS: string = constants.EVENT_TEST_PASS;
+const EVENT_RUN_END: string = constants.EVENT_RUN_END;
+const EVENT_TEST_FAIL: string = constants.EVENT_TEST_FAIL;
+
+/** Interface for runner-like objects */
+interface RunnerLike {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string, listener: (...args: any[]) => void): void;
+}
+
+/** Interface for reporter options */
+interface ReporterOptions {
+  [key: string]: unknown;
+}
+
+/** Interface for stats */
+interface StatsLike {
+  passes: number;
+  failures: number;
+  pending: number;
+}
 
 class NyanCat extends Base {
-  static description = '"nyan cat"';
+  static description: string = '"nyan cat"';
+
+  nyanCatWidth: number;
+  colorIndex: number;
+  numberOfLines: number;
+  rainbowColors: number[];
+  scoreboardWidth: number;
+  tick: boolean;
+  trajectories: string[][];
+  trajectoryWidthMax: number;
 
   /**
    * Constructs a new `Nyan` reporter instance.
@@ -28,21 +53,19 @@ class NyanCat extends Base {
    * @public
    * @memberof Mocha.reporters
    * @extends Mocha.reporters.Base
-   * @param {Runner} runner - Instance triggers reporter actions.
-   * @param {Object} [options] - runner options
    */
-  constructor(runner, options) {
+  constructor(runner: RunnerLike, options?: ReporterOptions) {
     super(runner, options);
 
-    var self = this;
-    var width = (Base.window.width * 0.75) | 0;
-    var nyanCatWidth = (this.nyanCatWidth = 11);
+    const self = this;
+    const width: number = (Base.window.width * 0.75) | 0;
+    const nyanCatWidth: number = (this.nyanCatWidth = 11);
 
     this.colorIndex = 0;
     this.numberOfLines = 4;
     this.rainbowColors = self.generateColors();
     this.scoreboardWidth = 5;
-    this.tick = 0;
+    this.tick = false;
     this.trajectories = [[], [], [], []];
     this.trajectoryWidthMax = width - nyanCatWidth;
 
@@ -65,7 +88,7 @@ class NyanCat extends Base {
 
     runner.once(EVENT_RUN_END, function () {
       Base.cursor.show();
-      for (var i = 0; i < self.numberOfLines; i++) {
+      for (let i = 0; i < self.numberOfLines; i++) {
         process.stdout.write("\n");
       }
       self.epilogue();
@@ -74,11 +97,8 @@ class NyanCat extends Base {
 
   /**
    * Draw the nyan cat
-   *
-   * @private
    */
-
-  draw() {
+  draw(): void {
     this.appendRainbow();
     this.drawScoreboard();
     this.drawRainbow();
@@ -89,14 +109,11 @@ class NyanCat extends Base {
   /**
    * Draw the "scoreboard" showing the number
    * of passes, failures and pending tests.
-   *
-   * @private
    */
+  drawScoreboard(): void {
+    const stats: StatsLike = this.stats;
 
-  drawScoreboard() {
-    var stats = this.stats;
-
-    function draw(type, n) {
+    function draw(type: string, n: number): void {
       process.stdout.write(" ");
       process.stdout.write(Base.color(type, n));
       process.stdout.write("\n");
@@ -112,16 +129,13 @@ class NyanCat extends Base {
 
   /**
    * Append the rainbow.
-   *
-   * @private
    */
+  appendRainbow(): void {
+    const segment: string = this.tick ? "_" : "-";
+    const rainbowified: string = this.rainbowify(segment);
 
-  appendRainbow() {
-    var segment = this.tick ? "_" : "-";
-    var rainbowified = this.rainbowify(segment);
-
-    for (var index = 0; index < this.numberOfLines; index++) {
-      var trajectory = this.trajectories[index];
+    for (let index = 0; index < this.numberOfLines; index++) {
+      const trajectory: string[] = this.trajectories[index];
       if (trajectory.length >= this.trajectoryWidthMax) {
         trajectory.shift();
       }
@@ -131,14 +145,11 @@ class NyanCat extends Base {
 
   /**
    * Draw the rainbow.
-   *
-   * @private
    */
+  drawRainbow(): void {
+    const self = this;
 
-  drawRainbow() {
-    var self = this;
-
-    this.trajectories.forEach(function (line) {
+    this.trajectories.forEach(function (line: string[]) {
       process.stdout.write("\u001b[" + self.scoreboardWidth + "C");
       process.stdout.write(line.join(""));
       process.stdout.write("\n");
@@ -149,14 +160,13 @@ class NyanCat extends Base {
 
   /**
    * Draw the nyan cat
-   *
-   * @private
    */
-  drawNyanCat() {
-    var self = this;
-    var startWidth = this.scoreboardWidth + this.trajectories[0].length;
-    var dist = "\u001b[" + startWidth + "C";
-    var padding;
+  drawNyanCat(): void {
+    const self = this;
+    const startWidth: number =
+      this.scoreboardWidth + this.trajectories[0].length;
+    const dist: string = "\u001b[" + startWidth + "C";
+    let padding: string;
 
     process.stdout.write(dist);
     process.stdout.write("_,------,");
@@ -169,7 +179,7 @@ class NyanCat extends Base {
 
     process.stdout.write(dist);
     padding = self.tick ? "_" : "__";
-    var tail = self.tick ? "~" : "^";
+    const tail: string = self.tick ? "~" : "^";
     process.stdout.write(tail + "|" + padding + this.face() + " ");
     process.stdout.write("\n");
 
@@ -183,13 +193,9 @@ class NyanCat extends Base {
 
   /**
    * Draw nyan cat face.
-   *
-   * @private
-   * @return {string}
    */
-
-  face() {
-    var stats = this.stats;
+  face(): string {
+    const stats: StatsLike = this.stats;
     if (stats.failures) {
       return "( x .x)";
     } else if (stats.pending) {
@@ -202,41 +208,30 @@ class NyanCat extends Base {
 
   /**
    * Move cursor up `n`.
-   *
-   * @private
-   * @param {number} n
    */
-
-  cursorUp(n) {
+  cursorUp(n: number): void {
     process.stdout.write("\u001b[" + n + "A");
   }
 
   /**
    * Move cursor down `n`.
-   *
-   * @private
-   * @param {number} n
    */
-
-  cursorDown(n) {
+  cursorDown(n: number): void {
     process.stdout.write("\u001b[" + n + "B");
   }
 
   /**
    * Generate rainbow colors.
-   *
-   * @private
-   * @return {Array}
    */
-  generateColors() {
-    var colors = [];
+  generateColors(): number[] {
+    const colors: number[] = [];
 
-    for (var i = 0; i < 6 * 7; i++) {
-      var pi3 = Math.floor(Math.PI / 3);
-      var n = i * (1.0 / 6);
-      var r = Math.floor(3 * Math.sin(n) + 3);
-      var g = Math.floor(3 * Math.sin(n + 2 * pi3) + 3);
-      var b = Math.floor(3 * Math.sin(n + 4 * pi3) + 3);
+    for (let i = 0; i < 6 * 7; i++) {
+      const pi3: number = Math.floor(Math.PI / 3);
+      const n: number = i * (1.0 / 6);
+      const r: number = Math.floor(3 * Math.sin(n) + 3);
+      const g: number = Math.floor(3 * Math.sin(n + 2 * pi3) + 3);
+      const b: number = Math.floor(3 * Math.sin(n + 4 * pi3) + 3);
       colors.push(36 * r + 6 * g + b + 16);
     }
 
@@ -245,16 +240,13 @@ class NyanCat extends Base {
 
   /**
    * Apply rainbow to the given `str`.
-   *
-   * @private
-   * @param {string} str
-   * @return {string}
    */
-  rainbowify(str) {
+  rainbowify(str: string): string {
     if (!Base.useColors) {
       return str;
     }
-    var color = this.rainbowColors[this.colorIndex % this.rainbowColors.length];
+    const color: number =
+      this.rainbowColors[this.colorIndex % this.rainbowColors.length];
     this.colorIndex += 1;
     return "\u001b[38;5;" + color + "m" + str + "\u001b[0m";
   }

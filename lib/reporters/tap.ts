@@ -1,30 +1,72 @@
 "use strict";
 
 /**
- * @typedef {import('../runner.js')} Runner
- * @typedef {import('../test.js')} Test
- */
-
-/**
  * @module TAP
  */
 /**
  * Module dependencies.
  */
 
-var util = require("node:util");
-var Base = require("./base");
-var constants = require("../runner").constants;
-var EVENT_TEST_PASS = constants.EVENT_TEST_PASS;
-var EVENT_TEST_FAIL = constants.EVENT_TEST_FAIL;
-var EVENT_RUN_BEGIN = constants.EVENT_RUN_BEGIN;
-var EVENT_RUN_END = constants.EVENT_RUN_END;
-var EVENT_TEST_PENDING = constants.EVENT_TEST_PENDING;
-var EVENT_TEST_END = constants.EVENT_TEST_END;
-var sprintf = util.format;
+const util = require("node:util");
+const Base = require("./base");
+const constants = require("../runner").constants;
+const EVENT_TEST_PASS: string = constants.EVENT_TEST_PASS;
+const EVENT_TEST_FAIL: string = constants.EVENT_TEST_FAIL;
+const EVENT_RUN_BEGIN: string = constants.EVENT_RUN_BEGIN;
+const EVENT_RUN_END: string = constants.EVENT_RUN_END;
+const EVENT_TEST_PENDING: string = constants.EVENT_TEST_PENDING;
+const EVENT_TEST_END: string = constants.EVENT_TEST_END;
+const sprintf: (...args: unknown[]) => string = util.format;
+
+/** Interface for test-like objects */
+interface TestLike {
+  title: string;
+  fullTitle(): string;
+  duration?: number;
+}
+
+/** Interface for error-like objects */
+interface ErrorLike {
+  message?: string;
+  stack?: string | null;
+}
+
+/** Interface for stats-like objects */
+interface StatsLike {
+  passes: number;
+  failures: number;
+  pending: number;
+}
+
+/** Interface for runner-like objects */
+interface RunnerLike {
+  stats: StatsLike;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(event: string, listener: (...args: any[]) => void): void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  once(event: string, listener: (...args: any[]) => void): void;
+}
+
+/** Interface for reporter options */
+interface ReporterOptions {
+  reporterOptions?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** Interface for TAP producer */
+interface TAPProducerInterface {
+  writeVersion(): void;
+  writePlan(ntests: number): void;
+  writePass(n: number, test: TestLike): void;
+  writePending(n: number, test: TestLike): void;
+  writeFail(n: number, test: TestLike, err?: ErrorLike): void;
+  writeEpilogue(stats: StatsLike): void;
+}
 
 class TAP extends Base {
-  static description = "TAP-compatible output";
+  static description: string = "TAP-compatible output";
+
+  _producer: TAPProducerInterface;
 
   /**
    * Constructs a new `TAP` reporter instance.
@@ -32,16 +74,14 @@ class TAP extends Base {
    * @public
    * @memberof Mocha.reporters
    * @extends Mocha.reporters.Base
-   * @param {Runner} runner - Instance triggers reporter actions.
-   * @param {Object} [options] - runner options
    */
-  constructor(runner, options) {
+  constructor(runner: RunnerLike, options?: ReporterOptions) {
     super(runner, options);
 
-    var self = this;
-    var n = 1;
+    const self = this;
+    let n: number = 1;
 
-    var tapVersion = "12";
+    let tapVersion: string = "12";
     if (options && options.reporterOptions) {
       if (options.reporterOptions.tapVersion) {
         tapVersion = options.reporterOptions.tapVersion.toString();
@@ -58,15 +98,15 @@ class TAP extends Base {
       ++n;
     });
 
-    runner.on(EVENT_TEST_PENDING, function (test) {
+    runner.on(EVENT_TEST_PENDING, function (test: TestLike) {
       self._producer.writePending(n, test);
     });
 
-    runner.on(EVENT_TEST_PASS, function (test) {
+    runner.on(EVENT_TEST_PASS, function (test: TestLike) {
       self._producer.writePass(n, test);
     });
 
-    runner.on(EVENT_TEST_FAIL, function (test, err) {
+    runner.on(EVENT_TEST_FAIL, function (test: TestLike, err: ErrorLike) {
       self._producer.writeFail(n, test, err);
     });
 
@@ -78,42 +118,29 @@ class TAP extends Base {
 
 /**
  * Returns a TAP-safe title of `test`.
- *
- * @private
- * @param {Test} test - Test instance.
- * @return {String} title with any hash character removed
  */
-function title(test) {
+function title(test: TestLike): string {
   return test.fullTitle().replace(/#/g, "");
 }
 
 /**
  * Writes newline-terminated formatted string to reporter output stream.
- *
- * @private
- * @param {string} format - `printf`-like format string
- * @param {...*} [varArgs] - Format string arguments
  */
-function println() {
-  var vargs = Array.from(arguments);
-  vargs[0] += "\n";
-  process.stdout.write(sprintf.apply(null, vargs));
+function println(...vargs: unknown[]): void {
+  const args: unknown[] = Array.from(vargs);
+  (args as string[])[0] += "\n";
+  process.stdout.write(sprintf(...args));
 }
 
 /**
  * Returns a `tapVersion`-appropriate TAP producer instance, if possible.
- *
- * @private
- * @param {string} tapVersion - Version of TAP specification to produce.
- * @returns {TAPProducer} specification-appropriate instance
- * @throws {Error} if specification version has no associated producer.
  */
-function createProducer(tapVersion) {
-  var producers = {
+function createProducer(tapVersion: string): TAPProducerInterface {
+  const producers: Record<string, TAPProducerInterface> = {
     12: new TAP12Producer(),
     13: new TAP13Producer(),
   };
-  var producer = producers[tapVersion];
+  const producer: TAPProducerInterface | undefined = producers[tapVersion];
 
   if (!producer) {
     throw new Error(
@@ -125,73 +152,49 @@ function createProducer(tapVersion) {
 }
 
 /**
- * @summary
  * Constructs a new TAPProducer.
  *
- * @description
  * <em>Only</em> to be used as an abstract base class.
- *
- * @private
- * @constructor
  */
-class TAPProducer {
+class TAPProducer implements TAPProducerInterface {
   /**
    * Writes the TAP version to reporter output stream.
-   *
-   * @abstract
    */
-  writeVersion() {}
+  writeVersion(): void {}
 
   /**
    * Writes the plan to reporter output stream.
-   *
-   * @abstract
-   * @param {number} ntests - Number of tests that are planned to run.
    */
-  writePlan(ntests) {
+  writePlan(ntests: number): void {
     println("%d..%d", 1, ntests);
   }
 
   /**
    * Writes that test passed to reporter output stream.
-   *
-   * @abstract
-   * @param {number} n - Index of test that passed.
-   * @param {Test} test - Instance containing test information.
    */
-  writePass(n, test) {
+  writePass(n: number, test: TestLike): void {
     println("ok %d %s", n, title(test));
   }
 
   /**
    * Writes that test was skipped to reporter output stream.
-   *
-   * @abstract
-   * @param {number} n - Index of test that was skipped.
-   * @param {Test} test - Instance containing test information.
    */
-  writePending(n, test) {
+  writePending(n: number, test: TestLike): void {
     println("ok %d %s # SKIP -", n, title(test));
   }
 
   /**
    * Writes that test failed to reporter output stream.
-   *
-   * @abstract
-   * @param {number} n - Index of test that failed.
-   * @param {Test} test - Instance containing test information.
    */
-  writeFail(n, test) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  writeFail(n: number, test: TestLike, err?: ErrorLike): void {
     println("not ok %d %s", n, title(test));
   }
 
   /**
    * Writes the summary epilogue to reporter output stream.
-   *
-   * @abstract
-   * @param {Object} stats - Object containing run statistics.
    */
-  writeEpilogue(stats) {
+  writeEpilogue(stats: StatsLike): void {
     // :TBD: Why is this not counting pending tests?
     println("# tests " + (stats.passes + stats.failures));
     println("# pass " + stats.passes);
@@ -202,12 +205,8 @@ class TAPProducer {
 }
 
 /**
- * @description
  * Produces output conforming to the TAP12 specification.
  *
- * @private
- * @constructor
- * @extends TAPProducer
  * @see {@link https://testanything.org/tap-specification.html|Specification}
  */
 class TAP12Producer extends TAPProducer {
@@ -215,27 +214,20 @@ class TAP12Producer extends TAPProducer {
    * Writes that test failed to reporter output stream, with error formatting.
    * @override
    */
-  writeFail(n, test, err) {
+  writeFail(n: number, test: TestLike, err?: ErrorLike): void {
     super.writeFail(n, test, err);
-    if (err.message) {
+    if (err && err.message) {
       println(err.message.replace(/^/gm, "  "));
     }
-    if (err.stack) {
+    if (err && err.stack) {
       println(err.stack.replace(/^/gm, "  "));
     }
   }
 }
 
 /**
- * @summary
- * Constructs a new TAP13Producer.
- *
- * @description
  * Produces output conforming to the TAP13 specification.
  *
- * @private
- * @constructor
- * @extends TAPProducer
  * @see {@link https://testanything.org/tap-version-13-specification.html|Specification}
  */
 class TAP13Producer extends TAPProducer {
@@ -243,7 +235,7 @@ class TAP13Producer extends TAPProducer {
    * Writes the TAP version to reporter output stream.
    * @override
    */
-  writeVersion() {
+  writeVersion(): void {
     println("TAP version 13");
   }
 
@@ -251,25 +243,26 @@ class TAP13Producer extends TAPProducer {
    * Writes that test failed to reporter output stream, with error formatting.
    * @override
    */
-  writeFail(n, test, err) {
+  writeFail(n: number, test: TestLike, err?: ErrorLike): void {
     super.writeFail(n, test, err);
-    var emitYamlBlock = err.message != null || err.stack != null;
+    const emitYamlBlock: boolean =
+      err != null && (err.message != null || err.stack != null);
     if (emitYamlBlock) {
       println(indent(1) + "---");
-      if (err.message) {
+      if (err!.message) {
         println(indent(2) + "message: |-");
-        println(err.message.replace(/^/gm, indent(3)));
+        println(err!.message.replace(/^/gm, indent(3)));
       }
-      if (err.stack) {
+      if (err!.stack) {
         println(indent(2) + "stack: |-");
-        println(err.stack.replace(/^/gm, indent(3)));
+        println(err!.stack.replace(/^/gm, indent(3)));
       }
       println(indent(1) + "...");
     }
   }
 }
 
-function indent(level) {
+function indent(level: number): string {
   return Array(level + 1).join("  ");
 }
 
