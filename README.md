@@ -4,6 +4,8 @@
 
 <p align="center">☕️ Classic, reliable, trusted test framework for Node.js and the browser ☕️</p>
 
+<!-- Test change for droid bot GitHub app -->
+
 <div align="center">
 
 <a href="https://www.npmjs.com/package/mocha"><img src="https://img.shields.io/npm/v/mocha.svg" alt="NPM Version"></a>
