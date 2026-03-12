@@ -50,6 +50,33 @@ Also, your company's logo will show [on GitHub](https://github.com/mochajs/mocha
 [![MochaJS Sponsor](https://opencollective.com/mochajs/tiers/sponsors/2/avatar)](https://opencollective.com/mochajs/tiers/sponsors/2/website)
 [![MochaJS Sponsor](https://opencollective.com/mochajs/tiers/sponsors/3/avatar)](https://opencollective.com/mochajs/tiers/sponsors/3/website)
 
+## Droid Review Bot
+
+This repository uses a Droid Review Bot powered by [Factory AI](https://github.com/Factory-AI/droid-action) to provide automated code review and on-demand assistance via GitHub Actions. Two workflows drive the bot:
+
+### Automatic PR Review
+
+When a pull request is opened, reopened, or marked as ready for review, the bot automatically performs a code review. It posts review comments directly on the PR with observations, suggestions, and potential issues. Draft PRs are skipped until they are marked ready. Only one review runs at a time per PR thanks to built-in concurrency controls.
+
+### On-Demand Assistance via `@droid`
+
+You can invoke the bot by mentioning **`@droid`** in any of the following contexts:
+
+- **Issue bodies or titles** -- when opening or editing an issue
+- **Issue comments** -- in reply threads on any issue
+- **PR descriptions or titles** -- when opening or editing a pull request
+- **PR review comments** -- inline on specific code changes
+- **PR reviews** -- in top-level review submissions
+
+The bot will respond in-thread to the comment or event where it was mentioned.
+
+### Working Effectively With the Bot
+
+- **Write clear PR descriptions.** The bot uses the content you provide to build context, so detailed descriptions lead to more useful review feedback.
+- **Use `@droid` to ask specific questions.** Mention `@droid` in a comment with a focused question (e.g., "Does this handle the edge case where X is null?") for targeted responses.
+- **Treat its output as a starting point.** The bot provides automated suggestions, but maintainer judgment always takes precedence. Review its feedback critically.
+- **No setup required for contributors.** The workflows run automatically using repository secrets -- contributors just open PRs and interact via comments as usual.
+
 ## Development
 
 You might want to know that:
