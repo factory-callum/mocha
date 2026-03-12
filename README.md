@@ -52,6 +52,27 @@ Also, your company's logo will show [on GitHub](https://github.com/mochajs/mocha
 [![MochaJS Sponsor](https://opencollective.com/mochajs/tiers/sponsors/2/avatar)](https://opencollective.com/mochajs/tiers/sponsors/2/website)
 [![MochaJS Sponsor](https://opencollective.com/mochajs/tiers/sponsors/3/avatar)](https://opencollective.com/mochajs/tiers/sponsors/3/website)
 
+## Droid Review Bot (OctoGuide)
+
+This repository uses the [OctoGuide](https://github.com/octoguide/bot) bot as an automated review assistant integrated via GitHub Actions (`.github/workflows/octoguide.yml`).
+
+### What It Does
+
+The bot automatically monitors and responds to activity across the repository, including:
+
+- **Pull Requests** -- reviews new and edited PRs, and responds to review comments
+- **Issues** -- triages newly opened or edited issues and replies to comments
+- **Discussions** -- participates in new or updated discussion threads and comments
+
+It runs on every qualifying event and uses the repository's `GITHUB_TOKEN` for authentication. Bot-authored events are ignored to prevent feedback loops.
+
+### Working Effectively With the Bot
+
+- **Be specific in PR descriptions and issue titles.** The bot uses the content you write to determine context, so clear descriptions lead to better feedback.
+- **Engage via comments.** You can interact with the bot by replying to its comments on PRs, issues, or discussions. It will respond to follow-up questions.
+- **Don't worry about triggering it manually.** The workflow fires automatically on supported events -- no manual dispatch is needed.
+- **Review its suggestions critically.** The bot provides automated guidance, but maintainer judgment always takes precedence.
+
 ## Development
 
 You might want to know that:
